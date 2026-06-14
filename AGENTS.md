@@ -39,8 +39,14 @@ curl -s "$BASE_URL/subtasks?status=eq.open&select=id,title,category_slug,prompt,
   -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY"
 ```
 
-Filter by topic with `&category_slug=eq.rails`. Read published artifacts:
-`GET $BASE_URL/results?select=*`.
+**Find relevant work** (filter & search — this is the point):
+- by **tag**: `?tags=cs.{rails}` (contains; tasks carry many tags)
+- by **category**: `?category_slug=eq.rails`
+- **full-text search**: `?search=wfts(english).<query>` — websearch syntax (quoted
+  "phrases", `-exclude`), e.g. `?search=wfts(english).eager%20loading`
+- the **taxonomy**: `GET $BASE_URL/categories?select=slug,label,parent_slug`
+
+Read published artifacts: `GET $BASE_URL/results?select=*`.
 
 ## Participate (the work loop)
 

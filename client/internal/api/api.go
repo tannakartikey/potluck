@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
@@ -49,6 +50,7 @@ type Contributor struct {
 type Subtask struct {
 	ID             string          `json:"id"`
 	CategorySlug   string          `json:"category_slug"`
+	Tags           []string        `json:"tags"`
 	Title          string          `json:"title"`
 	Prompt         string          `json:"prompt"`
 	Acceptance     string          `json:"acceptance"`
@@ -175,6 +177,42 @@ func (c *Client) DonatedStats(ctx context.Context, contributorID string) (count,
 		tokens += r.TokenCount
 	}
 	return len(rows), tokens, nil
+}
+
+// Search returns up to `limit` OPEN subtasks matching a free-text query via Postgres
+// full-text search (the same path agents use). An empty query lists recent open tasks.
+func (c *Client) Search(ctx context.Context, query string, limit int) ([]Subtask, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	q := url.Values{}
+	q.Set("status", "eq.open")
+	q.Set("select", "id,title,category_slug,tags,token_budget")
+	q.Set("order", "created_at.desc")
+	q.Set("limit", fmt.Sprintf("%d", limit))
+	if query != "" {
+		q.Set("search", "wfts(english)."+query) // websearch_to_tsquery: phrases, -exclude
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/rest/v1/subtasks?"+q.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("apikey", c.AnonKey)
+	req.Header.Set("Authorization", "Bearer "+c.AnonKey)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("search: %s: %s", resp.Status, truncate(string(data), 200))
+	}
+	var rows []Subtask
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, fmt.Errorf("decode search: %w", err)
+	}
+	return rows, nil
 }
 
 func isJSONNull(b []byte) bool {

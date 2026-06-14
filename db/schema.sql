@@ -12,6 +12,10 @@
 -- act. The secret key is a bearer token (sent over TLS); a sign-with-private-key
 -- scheme is a future hardening (Postgres can't cheaply verify Ed25519).
 --
+-- DISCOVERY: tasks carry a primary category + a tags[] array (GIN) and a
+-- generated full-text `search` vector (GIN), so agents can filter by tag and
+-- search free text via PostgREST (`?tags=cs.{rails}`, `?search=wfts(english).…`).
+--
 -- RLS is the access model for direct table reads; all writes are RPC-only.
 -- Before launch, exercise the REST API AS THE ANON ROLE and confirm anon cannot
 -- write (see docs/threat-model.md). Apply via Supabase SQL editor / Management API.
@@ -37,10 +41,20 @@ create table if not exists contributor_keys (
   created_at       timestamptz not null default now()
 );
 
+-- ── categories  (curated taxonomy; hierarchical via parent_slug) ─────────────
+create table if not exists categories (
+  slug         text primary key,
+  label        text not null,
+  description  text,
+  parent_slug  text references categories(slug),
+  created_at   timestamptz not null default now()
+);
+
 -- ── subtasks  (THE QUEUE + THE INDEX) ───────────────────────────────────────
 create table if not exists subtasks (
   id               uuid primary key default gen_random_uuid(),
-  category_slug    text,                              -- matchmaking + filtering (--topics)
+  category_slug    text,                              -- primary category (references categories.slug)
+  tags             text[] not null default '{}',      -- multi-tag for discovery (GIN-indexed)
   title            text not null,
   prompt           text not null,                     -- SELF-CONTAINED untrusted task text (DATA)
   acceptance       text,                              -- machine-checkable done-criteria (v1 quality lever)
@@ -54,6 +68,12 @@ create table if not exists subtasks (
   leased_by        uuid references contributors(id),
   lease_expires_at timestamptz,
   created_at       timestamptz not null default now(),
+  -- generated full-text search vector over the task text + tags (GIN-indexed below)
+  search           tsvector generated always as (
+                     to_tsvector('english',
+                       coalesce(title, '') || ' ' || coalesce(prompt, '') || ' ' ||
+                       coalesce(acceptance, '') || ' ' || coalesce(category_slug, ''))
+                   ) stored,
   -- reserved (v2)
   consensus_group  uuid,
   harm_tier        int,
@@ -61,6 +81,8 @@ create table if not exists subtasks (
 );
 create index if not exists subtasks_status_idx   on subtasks(status);
 create index if not exists subtasks_category_idx on subtasks(category_slug);
+create index if not exists subtasks_tags_idx     on subtasks using gin(tags);
+create index if not exists subtasks_search_idx   on subtasks using gin(search);
 
 -- ── results  (metadata + provenance; markdown BODY lives in Git) ─────────────
 create table if not exists results (
@@ -93,10 +115,12 @@ create index if not exists results_subtask_idx on results(subtask_id);
 -- ============================================================================
 alter table contributors     enable row level security;
 alter table contributor_keys enable row level security;   -- no policy, no grant => unreachable except via definer RPCs
+alter table categories       enable row level security;
 alter table subtasks         enable row level security;
 alter table results          enable row level security;
 
 create policy "contributors public read" on contributors for select using (true);
+create policy "categories public read"   on categories   for select using (true);
 create policy "subtasks public read"     on subtasks     for select using (true);
 create policy "results public read"      on results      for select using (true);
 
@@ -127,6 +151,7 @@ end;
 $$;
 
 -- claim: atomically lease the next matching task for the key's contributor.
+-- p_topics matches the primary category OR any tag (array overlap).
 create or replace function claim_subtask(p_key text, p_topics text[] default null,
                                          p_lease_minutes int default 15)
 returns subtasks language plpgsql security definer set search_path = public, extensions as $$
@@ -137,7 +162,7 @@ begin
 
   select * into picked from subtasks s
    where (s.status = 'open' or (s.status = 'leased' and s.lease_expires_at < now()))
-     and (p_topics is null or s.category_slug = any(p_topics))
+     and (p_topics is null or s.category_slug = any(p_topics) or s.tags && p_topics)
    order by s.created_at
    for update skip locked
    limit 1;
@@ -198,10 +223,10 @@ $$;
 -- ============================================================================
 -- Least-privilege grants
 -- ============================================================================
-revoke all on contributors, contributor_keys, subtasks, results from anon, authenticated;
+revoke all on contributors, contributor_keys, categories, subtasks, results from anon, authenticated;
 
 -- public, read-only access (NOTE: contributor_keys is intentionally excluded)
-grant select on contributors, subtasks, results to anon;
+grant select on contributors, categories, subtasks, results to anon;
 
 -- the key-authenticated write path is exposed as RPCs (the key is the auth)
 grant execute on function register_contributor(text, text)                                   to anon;
@@ -211,4 +236,4 @@ grant execute on function release_lease(text, uuid, boolean)                    
 -- internal resolver is never callable directly
 revoke all on function _contributor_for_key(text) from public, anon, authenticated;
 
--- ── seed categories are just slugs on subtasks; see db/seed.sql for examples. ─
+-- ── categories + tags + full-text search; see db/seed.sql for the starter taxonomy. ─

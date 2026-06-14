@@ -80,3 +80,27 @@ func TestRPCErrorSurfacesMessage(t *testing.T) {
 		t.Fatalf("expected RLS error surfaced, got %v", err)
 	}
 }
+
+func TestSearchBuildsFTSQuery(t *testing.T) {
+	var gotSearch, gotStatus string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSearch = r.URL.Query().Get("search")
+		gotStatus = r.URL.Query().Get("status")
+		_, _ = w.Write([]byte(`[{"id":"s1","title":"Attention explainer","category_slug":"ml-papers","tags":["ai","ml"],"token_budget":4500}]`))
+	}))
+	defer srv.Close()
+
+	rows, err := testClient(srv).Search(context.Background(), "attention", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSearch != "wfts(english).attention" {
+		t.Errorf("search param = %q", gotSearch)
+	}
+	if gotStatus != "eq.open" {
+		t.Errorf("status param = %q", gotStatus)
+	}
+	if len(rows) != 1 || rows[0].Title != "Attention explainer" || len(rows[0].Tags) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+}

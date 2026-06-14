@@ -29,6 +29,8 @@ func main() {
 		cmdRegister(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
+	case "search":
+		cmdSearch(os.Args[2:])
 	case "status":
 		cmdStatus(os.Args[2:])
 	case "version", "-v", "--version":
@@ -48,12 +50,13 @@ func usage() {
 usage:
   potluck register [--name <handle>]   create your contributor key (one time)
   potluck run [flags]                  claim → run → submit, until --max-tasks or Ctrl-C
+  potluck search <query>               full-text search the open task board
   potluck status                       show your identity + what you've donated
   potluck version
 
 run flags:
   --backend B       claude-code | codex (default: config / claude-code)
-  --topics a,b      only claim these categories (default: all)
+  --topics a,b      only claim tasks with these categories/tags (default: all)
   --budget N        skip tasks needing more than N tokens (default: config / 8000)
   --model M         model: Claude alias (haiku|sonnet|opus) or full id; for codex
                     pass a Codex model (e.g. gpt-5-codex) or omit to use its default
@@ -92,7 +95,7 @@ func cmdRegister(args []string) {
 func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	backendName := fs.String("backend", "", "backend: claude-code | codex")
-	topics := fs.String("topics", "", "comma-separated categories")
+	topics := fs.String("topics", "", "comma-separated categories/tags")
 	budget := fs.Int("budget", 0, "skip tasks needing more than N tokens")
 	model := fs.String("model", "", "model alias or id")
 	maxTasks := fs.Int("max-tasks", 0, "stop after N tasks (0 = until empty / Ctrl-C)")
@@ -135,6 +138,25 @@ func cmdRun(args []string) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+func cmdSearch(args []string) {
+	fs := flag.NewFlagSet("search", flag.ExitOnError)
+	limit := fs.Int("limit", 20, "max results")
+	_ = fs.Parse(args)
+	query := strings.TrimSpace(strings.Join(fs.Args(), " "))
+
+	rows, err := api.New().Search(context.Background(), query, *limit)
+	check(err)
+	if len(rows) == 0 {
+		fmt.Printf("no open tasks match %q\n", query)
+		return
+	}
+	for _, t := range rows {
+		fmt.Printf("· %s\n    %s · %s · ~%d tok\n",
+			t.Title, orDefault(t.CategorySlug, "-"), orDefault(strings.Join(t.Tags, ", "), "-"), t.TokenBudget)
+	}
+	fmt.Printf("\n%d open task(s). Work them: potluck run --topics <category-or-tag>\n", len(rows))
 }
 
 func cmdStatus(args []string) {

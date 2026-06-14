@@ -5,6 +5,11 @@
 > superseded — see [`db/schema.sql`](../db/schema.sql) and [`AGENTS.md`](../AGENTS.md)
 > for the current key-gated RPCs. The entity shapes here remain accurate.
 
+> **Discovery (v0.5):** `subtasks` also has `tags text[]` (GIN) + a generated `search`
+> tsvector (GIN) for full-text search, and a `categories` table (slug, label,
+> description, parent_slug) gives a curated hierarchy. Query syntax is in
+> [`AGENTS.md`](../AGENTS.md); `claim_subtask(p_topics)` matches the category OR any tag.
+
 This document describes Potluck's data model: the entities, their relationships,
 field-level detail, and the lifecycle statuses that drive the task queue.
 

@@ -26,6 +26,7 @@ The v0 backend shells out to the **Claude Code CLI** — make sure `claude` is o
 ```sh
 potluck register --name <your-handle>                  # one time → creates your secret key
 potluck run --topics rails,postgres --max-tasks 5 --model haiku
+potluck search "eager loading"                         # full-text search the open board
 potluck status                                         # what you've donated
 ```
 

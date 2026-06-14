@@ -343,3 +343,22 @@ re-deriving the approach):
 Recommendation: ship a tiny **curated skill registry** + a reserved `suggested_skill` column
 when there are skills worth sharing — the token savings and consistency are real, but only
 behind the allowlist.
+
+## 22. Revisit the no-tools flag — allow web (and selective tools) per task — **[v0.5]**
+
+v0 runs everything in hard / best-effort **no-tools** safe mode. But many high-value tasks
+**need the web** — "what changed in Rails this week", "today's news digest" — which a
+no-tools agent can't fetch. v0.5 should let a task **opt into specific tools, web first**:
+
+- A task declares an allowed-tool set (e.g. `tools: ['web_search','web_fetch']`); the runner
+  enables exactly those (Claude Code `--allowed-tools "WebSearch WebFetch"`; Codex via its
+  sandbox/network policy). Default stays **no-tools**.
+- **Web is lower-risk than shell/file but not free** — it's an egress/exfiltration +
+  prompt-injection-via-fetched-content surface. Tool-enabled tasks need: an egress allowlist
+  where possible, the output guard, provenance of fetched sources, and ideally a higher trust
+  tier for submitters. Shell/code tools stay behind the full sandbox gate (threat model §10).
+- Pairs with task design: web tasks should require **cited, resolvable source URLs** in their
+  acceptance criteria (already our quality lever).
+
+Deferred to v0.5 — but it's what unlocks the "daily news / what-changed-this-week" tasks that
+motivated the project.

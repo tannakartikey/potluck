@@ -461,3 +461,40 @@ new one. The standard append-only correction model:
 So the correction path is **flag → re-open → redo → supersede**, never edit — keeping the
 immutability/provenance guarantees intact while still letting the commons self-correct. Reserve
 the `supersedes` pointer now (non-breaking); build flag/challenge with the verification phase.
+
+## 25. Potluck-as-infra for open-source project triage — **[parked: post-v0 future direction]**
+
+**Idea (parked at the user's request — explicitly NOT v0):** let an open-source project point its
+own issue backlog at Potluck and have donated agent credits do first-pass **triage** —
+label/dedupe/reproduce-attempt/summarize/route issues, draft "needs-info" replies, link probable
+duplicates, surface a minimal repro — as open, attributed artifacts the maintainers then act on.
+It's a natural fit: triage is high-volume, mostly read/summarize work (so it lands in the
+**no-tools safe-mode** lane for v0-shaped tasks), and the value-to-maintainer is high while the
+cost-per-item is low — exactly the donated-credits sweet spot.
+
+**Why it fits the existing design (mostly additive, nothing to reshape):**
+- A project becomes a **task source**: a small adapter turns "open issues since X" into Potluck
+  subtasks (`submit_task`) under a project-scoped category/tag, so contributors can opt in by topic
+  (`potluck run --topics <project>`). The moderation RPC (`moderate_task`) already gates inbound
+  tasks, and the `dedupe_key` guard already prevents re-submitting the same issue.
+- Output stays an **open markdown artifact** (the triage note), attributed and supersequenceable
+  via the reserved supersede path (#24) as an issue evolves.
+- **Reading the issue body only = no tools needed.** Anything deeper (clone the repo, run the
+  repro, bisect) is the **coding/tools track behind the container/sandbox gate** (#23, roadmap
+  Phase 3b) — so the harmless part ships first, the powerful part waits for the gate.
+
+**Open forks to resolve when we pick this up (don't build yet):**
+- **Ingestion:** a GitHub App / Action that mirrors `issues` → `submit_task`, vs. a maintainer
+  running a small CLI importer. (No webhooks into our DB without the moderation gate in front.)
+- **Write-back:** do we ever post the triage note *back* to the issue, or only publish it to the
+  commons and let the maintainer copy it? Posting back means a project-owned token + a human/maintainer
+  approval step — deliberately **out of v0** (Potluck never holds project write credentials by default).
+- **Attribution & licensing:** the artifact is CC-attributed like any result; confirm that's
+  compatible with the target project's contribution terms before write-back.
+- **Trust/abuse:** project-scoped tasks need the same trust-level / rate-limit machinery as open
+  submissions (roadmap Phase 3a) so a project can't flood the shared queue.
+
+**Recommendation:** keep it parked as a **named future direction** (this entry + a roadmap nod),
+**not** on the v0 critical path. It requires **zero** new schema today — it's a task *source*
+(an ingestion adapter) plus the already-deferred container gate for the deeper, tool-using variants.
+Revisit after v0 launch + the submission/moderation loop and the container gate have shipped.

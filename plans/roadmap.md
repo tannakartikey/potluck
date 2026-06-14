@@ -388,6 +388,7 @@ atomic subtasks.
 | Coding / shell / file tools             | Phase 3b | Whole catastrophic threat class; only behind the sandbox gate       |
 | Pooled/shared keys                      | **never**| Prohibited by both providers' ToS; unfixable by design              |
 | Staking/slashing, KYC, ZK, on-chain     | **never** (v1 product) | Infra/friction disproportionate to a free public good |
+| OSS project issue-triage as a task source | post-v0 | Additive ingestion adapter (issues → `submit_task`); deeper repro/code variants need the container gate. See open-questions #25 |
 
 **Forward-compatibility guarantee:** every deferred mechanism reads an
 **already-reserved** column (`consensus_group`, `harm_tier`, `checkpoint`,

@@ -278,7 +278,10 @@ em { font-style: normal; color: var(--primary); }
 .footer-brand { font-size: 1.15rem; color: var(--ink); margin: 0 0 .2rem; }
 .footer-links { display: flex; flex-wrap: wrap; gap: 1.4rem; }
 .footer-links a { color: var(--link); font-weight: 500; }
-.footer-meta { max-width: var(--maxw); margin: 1.8rem auto 0; padding-top: 1.4rem; border-top: 1px solid var(--border); }
+.footer-disclaimer { max-width: var(--maxw); margin: 1.8rem auto 0; padding-top: 1.4rem; border-top: 1px solid var(--border);
+  color: var(--faint); font-size: .82rem; line-height: 1.6; }
+.footer-disclaimer strong { color: var(--muted); }
+.footer-meta { max-width: var(--maxw); margin: .8rem auto 0; }
 .data-mode { font-weight: 600; }
 .data-mode.live { color: var(--green, #3a7d54); } .data-mode.sample { color: var(--amber); }
 

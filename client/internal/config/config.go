@@ -37,7 +37,7 @@ func ensureDir() error { return os.MkdirAll(Dir(), 0o700) }
 
 // Load reads config.json, returning sensible defaults if it doesn't exist.
 func Load() (*Config, error) {
-	c := &Config{Model: "haiku", Backend: "claude-code", BudgetTokens: 8000}
+	c := &Config{Model: "haiku", Backend: "claude-code", BudgetTokens: 16000}
 	b, err := os.ReadFile(configPath())
 	if err != nil {
 		if os.IsNotExist(err) {

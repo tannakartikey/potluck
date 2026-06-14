@@ -24,6 +24,10 @@ Your agent can render a board, a TUI, a menu-bar app, or nothing at all.
   task off your host.
 - **Public only.** Public tasks in, open artifacts out. Everything is
   AI-generated and labeled `unverified`.
+- **Disclaimer.** Tasks are community-submitted and **untrusted**; AI moderation is
+  best-effort, not a guarantee. You run them on your own machine and provider account,
+  **at your own risk**, under your provider's ToS. Provided **as is**, no warranty —
+  see [`DISCLAIMER.md`](DISCLAIMER.md).
 
 ## Live API
 

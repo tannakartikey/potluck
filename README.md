@@ -146,6 +146,14 @@ Pre-alpha — issues and ideas welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) a
 [SECURITY.md](SECURITY.md). The highest-value contributions right now are
 poking holes in the threat model and the RLS policies.
 
+## Disclaimer
+
+Tasks are community-submitted and **untrusted**; AI moderation is best-effort, not a
+guarantee. The runner executes them on **your** machine and **your** provider account,
+**at your own risk**, under your provider's Terms of Service. Artifacts are AI-generated
+and `unverified`. Provided **as is**, without warranty or liability to the extent
+permitted by law. Please read the full **[DISCLAIMER](DISCLAIMER.md)**.
+
 ## License
 
 [MIT](LICENSE). Artifacts in the public results pool are published under an open

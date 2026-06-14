@@ -69,7 +69,7 @@ usage:
 run flags:
   --backend B       claude-code | codex (default: config / claude-code)
   --topics a,b      only claim tasks with these categories/tags (default: all)
-  --budget N        skip tasks needing more than N tokens (default: config / 8000)
+  --budget N        skip tasks needing more than N tokens (default: config / 16000)
   --model M         model: Claude alias (haiku|sonnet|opus) or full id; for codex
                     pass a Codex model (e.g. gpt-5-codex) or omit to use its default
   --max-tasks N     stop after N tasks (default: 0 = until queue empty / Ctrl-C)
@@ -103,6 +103,7 @@ func cmdRegister(args []string) {
 	name := fs.String("name", "", "display name / handle")
 	_ = fs.Parse(args)
 
+	printDisclaimer()
 	ctx := context.Background()
 	cl := api.New()
 	if config.HasKey() {
@@ -170,6 +171,7 @@ func cmdRun(args []string) {
 		PollSeconds:   *poll,
 	}
 
+	fmt.Println(disclaimerLine)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := runner.Run(ctx, api.New(), be, key, opts); err != nil {
@@ -243,6 +245,7 @@ func cmdModerate(args []string) {
 		IncludeEscalated: *includeEscalated,
 		DryRun:           *dryRun,
 	}
+	fmt.Println(disclaimerLine)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := runner.Moderate(ctx, api.New(), be, key, cfg.ContributorID, opts); err != nil {
@@ -306,7 +309,7 @@ func cmdSubmit(args []string) {
 	acceptance := fs.String("acceptance", "", "machine-checkable acceptance criteria")
 	category := fs.String("category", "", "primary category slug")
 	tags := fs.String("tags", "", "comma-separated tags")
-	budget := fs.Int("budget", 5000, "token budget")
+	budget := fs.Int("budget", 12000, "token budget (realistic room for quality work)")
 	_ = fs.Parse(args)
 
 	if !config.HasKey() {
@@ -357,6 +360,22 @@ func cmdStatus(args []string) {
 	}
 	fmt.Printf("donated: %d artifact(s), %d tokens\n", count, tokens)
 }
+
+// printDisclaimer shows the run-at-your-own-risk notice. Full text in DISCLAIMER.md.
+func printDisclaimer() {
+	const line = "──────────────────────────────────────────────────────────────────"
+	fmt.Println(line)
+	fmt.Println("⚠️  DISCLAIMER — please read")
+	fmt.Println("Tasks are community-submitted and UNTRUSTED. Potluck does not author or")
+	fmt.Println("control them; AI moderation is best-effort, not a guarantee. You run them")
+	fmt.Println("on YOUR machine and YOUR provider account, at YOUR OWN RISK, under your")
+	fmt.Println("provider's Terms of Service. Artifacts are AI-generated and `unverified`.")
+	fmt.Println("Provided AS IS — no warranty, no liability to the extent permitted by law.")
+	fmt.Println("By using this client you accept this. Full text: DISCLAIMER.md")
+	fmt.Println(line)
+}
+
+const disclaimerLine = "⚠️  Community tasks are untrusted · AI-moderated best-effort · run at your own risk · DISCLAIMER.md"
 
 func check(err error) {
 	if err != nil {

@@ -2,8 +2,18 @@ package backend
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 )
+
+// ContainerImageReady reports whether the sandbox image exists and the Docker daemon is reachable
+// (so the runner can fall back to host safe-mode with a clear message instead of a cryptic error).
+func ContainerImageReady(image string) bool {
+	if image == "" {
+		image = "potluck-runner:latest"
+	}
+	return exec.Command("docker", "image", "inspect", image).Run() == nil
+}
 
 // DockerConfig, when set on a backend, runs the agent CLI inside an ephemeral, locked-down
 // Docker container instead of on the host — the v0 launch-safety isolation (#23). The

@@ -6,8 +6,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -17,9 +20,24 @@ import (
 	"github.com/tannakartikey/potluck/client/internal/runner"
 )
 
+const repoURL = "https://github.com/tannakartikey/potluck"
+
 var version = "v0.0.1-dev"
 
 func main() {
+	// Potluck collects NO telemetry. If the binary crashes, we print the stack locally and a
+	// link to file a GitHub issue — you choose what to share; nothing is sent automatically.
+	defer func() {
+		if r := recover(); r != nil {
+			stack := truncate(string(debug.Stack()), 2000)
+			fmt.Fprintf(os.Stderr, "\n💥 potluck hit an unexpected error: %v\n\n%s\n", r, stack)
+			fmt.Fprintln(os.Stderr, "Potluck collects no telemetry — nothing was sent. If you can, please report this (you choose what to share):")
+			body := fmt.Sprintf("**Crash:** %v\n\n**Command:** `potluck %s`\n**Version:** %s · %s/%s\n\n**Stack:**\n```\n%s\n```",
+				r, strings.Join(os.Args[1:], " "), version, runtime.GOOS, runtime.GOARCH, stack)
+			fmt.Fprintln(os.Stderr, "  "+issueURL(fmt.Sprintf("crash: %v", r), body))
+			os.Exit(2)
+		}
+	}()
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -77,8 +95,10 @@ run flags:
   --poll N          --watch poll interval in seconds (default 15)
   --max-week N      stop when your weekly plan usage reaches N% (Claude Code; 0 = off)
   --max-session N   stop when your 5-hour session usage reaches N% (Claude Code; 0 = off)
-  --container       run each task in a locked-down Docker container (recommended;
-                    mounts ONLY your auth file, never your session history)
+  --no-container    run on the host instead of the DEFAULT locked-down container
+                    (by default each task runs in a container; mounts ONLY your auth
+                    file, never your session history. Falls back to host if Docker
+                    isn't set up.)
   --image NAME      container image (default potluck-runner:latest)
   --docker-memory   container memory limit (default 2g)
   --docker-cpus     container CPU limit (default 2)
@@ -89,7 +109,7 @@ moderate flags:
   --max-tasks N     stop after N tasks (default: 0 = whole queue)
   --include-escalated  also re-examine 'needs_review' tasks
   --dry-run         print verdicts but don't apply them
-  --container       run the moderator agent in a locked-down container
+  --no-container    run on the host instead of the default locked-down container
 
 submit flags:
   --title, --prompt (required), --acceptance, --category, --tags a,b, --budget N
@@ -136,10 +156,10 @@ func cmdRun(args []string) {
 	poll := fs.Int("poll", 15, "poll interval in seconds for --watch")
 	maxWeek := fs.Int("max-week", 0, "stop at N% weekly plan usage (0 = off)")
 	maxSession := fs.Int("max-session", 0, "stop at N% session (5h) usage (0 = off)")
-	container := fs.Bool("container", false, "run each task inside a locked-down Docker container (recommended)")
+	noContainer := fs.Bool("no-container", false, "run on the host instead of the default locked-down container")
 	image := fs.String("image", "", "container image to use (default potluck-runner:latest)")
-	dockerMem := fs.String("docker-memory", "2g", "container memory limit (with --container)")
-	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit (with --container)")
+	dockerMem := fs.String("docker-memory", "2g", "container memory limit")
+	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit")
 	_ = fs.Parse(args)
 
 	if !config.HasKey() {
@@ -155,7 +175,7 @@ func cmdRun(args []string) {
 	if chosen == "" {
 		chosen = "claude-code"
 	}
-	be := buildBackend(chosen, *container, *image, *dockerMem, *dockerCPUs)
+	be := buildBackend(chosen, !*noContainer, *image, *dockerMem, *dockerCPUs)
 	if chosen != "claude-code" && (*maxWeek > 0 || *maxSession > 0) {
 		fmt.Fprintf(os.Stderr, "note: --max-week/--max-session need plan-usage reporting (Claude Code only); ignored for %s.\n", chosen)
 	}
@@ -180,24 +200,29 @@ func cmdRun(args []string) {
 	}
 }
 
-// buildBackend constructs the chosen execution backend, optionally wrapped in the
-// locked-down Docker container (shared by `run` and `moderate`). Exits with a clear
-// message if container mode is requested without usable credentials.
+// buildBackend constructs the chosen execution backend. By DEFAULT each task runs inside the
+// locked-down Docker container (the safe default); if the container can't run (no Docker/image, or
+// no mountable auth) it falls back to host no-tools safe mode with a clear message rather than
+// failing. Pass container=false (--no-container) to force the host. Shared by `run` and `moderate`.
 func buildBackend(chosen string, container bool, image, dockerMem, dockerCPUs string) backend.Backend {
 	var dcfg *backend.DockerConfig
 	if container {
 		home, _ := os.UserHomeDir()
 		mounts, env := backend.AuthMountsFor(chosen, home)
-		if !backend.HasContainerAuth(chosen, home, mounts, env) {
-			fmt.Fprintf(os.Stderr, "container mode needs your %s credentials, but none were found.\n", chosen)
+		switch {
+		case !backend.HasContainerAuth(chosen, home, mounts, env):
+			fmt.Fprintf(os.Stderr, "⚠️  container needs a mountable %s credential and none was found — running on the host in no-tools safe mode.\n", chosen)
 			if chosen == "claude-code" {
-				fmt.Fprintln(os.Stderr, "  set ANTHROPIC_API_KEY, or use a Claude install that writes ~/.claude/.credentials.json.")
+				fmt.Fprintln(os.Stderr, "    (set ANTHROPIC_API_KEY for full container isolation; or pass --no-container to silence this.)")
 			} else {
-				fmt.Fprintln(os.Stderr, "  run `codex login` (writes ~/.codex/auth.json) or set OPENAI_API_KEY.")
+				fmt.Fprintln(os.Stderr, "    (`codex login` / set OPENAI_API_KEY for full container isolation; or pass --no-container to silence this.)")
 			}
-			os.Exit(1)
+		case !backend.ContainerImageReady(image):
+			fmt.Fprintln(os.Stderr, "⚠️  the sandbox image isn't ready (Docker not running, or image not built) — running on the host in no-tools safe mode.")
+			fmt.Fprintln(os.Stderr, "    build it once for full isolation:  docker build -t potluck-runner:latest docker/")
+		default:
+			dcfg = &backend.DockerConfig{Image: image, Mounts: mounts, Env: env, Memory: dockerMem, CPUs: dockerCPUs}
 		}
-		dcfg = &backend.DockerConfig{Image: image, Mounts: mounts, Env: env, Memory: dockerMem, CPUs: dockerCPUs}
 	}
 	switch chosen {
 	case "claude-code":
@@ -218,10 +243,10 @@ func cmdModerate(args []string) {
 	maxTasks := fs.Int("max-tasks", 0, "stop after N tasks (0 = whole queue)")
 	includeEscalated := fs.Bool("include-escalated", false, "also re-examine 'needs_review' tasks")
 	dryRun := fs.Bool("dry-run", false, "print verdicts but don't apply them")
-	container := fs.Bool("container", false, "run the moderator agent inside a locked-down Docker container")
+	noContainer := fs.Bool("no-container", false, "run on the host instead of the default locked-down container")
 	image := fs.String("image", "", "container image (default potluck-runner:latest)")
-	dockerMem := fs.String("docker-memory", "2g", "container memory limit (with --container)")
-	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit (with --container)")
+	dockerMem := fs.String("docker-memory", "2g", "container memory limit")
+	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit")
 	_ = fs.Parse(args)
 
 	if !config.HasKey() {
@@ -237,7 +262,7 @@ func cmdModerate(args []string) {
 	if chosen == "" {
 		chosen = "claude-code"
 	}
-	be := buildBackend(chosen, *container, *image, *dockerMem, *dockerCPUs)
+	be := buildBackend(chosen, !*noContainer, *image, *dockerMem, *dockerCPUs)
 
 	opts := runner.ModerateOptions{
 		Model:            resolveModel(chosen, *model, cfg.Model),
@@ -377,9 +402,26 @@ func printDisclaimer() {
 
 const disclaimerLine = "⚠️  Community tasks are untrusted · AI-moderated best-effort · run at your own risk · DISCLAIMER.md"
 
+// issueURL builds a prefilled "new GitHub issue" link. We never auto-submit anything — the user
+// clicks it if they choose to. (No telemetry; consistent with storing no user data.)
+func issueURL(title, body string) string {
+	return repoURL + "/issues/new?title=" + url.QueryEscape(title) + "&body=" + url.QueryEscape(body)
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
+
 func check(err error) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		fmt.Fprintln(os.Stderr, "\nPotluck collects no telemetry — nothing was sent. If this looks like a bug, you can report it (you choose what to share):")
+		body := fmt.Sprintf("**Error:**\n```\n%v\n```\n\n**Command:** `potluck %s`\n**Version:** %s · %s/%s",
+			err, strings.Join(os.Args[1:], " "), version, runtime.GOOS, runtime.GOARCH)
+		fmt.Fprintln(os.Stderr, "  "+issueURL("bug: "+truncate(err.Error(), 70), body))
 		os.Exit(1)
 	}
 }

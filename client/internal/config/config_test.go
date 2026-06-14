@@ -33,7 +33,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Model != "haiku" || c.Backend != "claude-code" || c.BudgetTokens != 8000 {
+	if c.Model != "haiku" || c.Backend != "claude-code" || c.BudgetTokens != 16000 {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 }

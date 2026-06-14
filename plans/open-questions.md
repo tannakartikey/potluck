@@ -696,3 +696,33 @@ the public board (separate DB/instance vs. row-level partition + RLS); the safe-
 applies (a partner's task is still untrusted to *your* machine); ToS/compliance and the legal shape of a
 token-sharing agreement; and the mission/branding tension (keep it a clearly-separate offering). **Parked
 as a future fork; not on the public-Potluck roadmap.** See `plans/vision.md` → "Divergent fork."
+
+## 30. Structured artifact schemas per content type — **[parked: high-value, post-v0; uses reserved `structured_output`]**
+
+**Idea (the user's):** digests of the same KIND should share a **common structured schema** so the
+corpus is uniformly machine-parseable — e.g. every *news* artifact carries `headline`, `datePublished`,
+`source_url`, `summary`, `key_facts[]`, `entities[]`, `topics[]`; every *paper* carries
+`problem/method/result/limitations`; every *advisory* carries `affected_versions/severity/mitigations`.
+Free prose is readable but every consuming agent must re-parse it; a fixed shape makes the flagship
+"searchable digest layer agents hook into" (#flagship in `docs/use-cases.md`) far more useful — you can
+filter/query *fields*, not just text.
+
+**Don't invent the wheel — reuse open standards the LLM already knows:**
+- **schema.org** (emit JSON-LD): `NewsArticle`, `BlogPosting`, `ScholarlyArticle`/`Report`,
+  `SoftwareApplication`+release notes, `Event` (civic meetings), `Dataset`. LLMs are very well-versed
+  in schema.org, so output quality is high with zero bespoke spec.
+- Domain standards where they exist and the model knows them: **CSAF / CVE JSON** for security
+  advisories, **JSON Feed** for posts, **Dublin Core** for archival metadata.
+- Only define a *thin* Potluck profile (which fields are required per type) on top of the standard.
+
+**Mechanism (additive, no schema reshape):** a task declares its target type/schema; the worker emits
+**both** the human-readable markdown **and** a structured object → the already-reserved
+`results.structured_output jsonb`. Acceptance can then validate required fields (machine-checkable!).
+Ship per-type **templates / a skill** (a Claude Code skill or a prompt template) that guides the agent
+to the right shape — "here's how to produce a news artifact," etc. Later, index hot structured fields
+for field-level search/filter.
+
+**Why parked, not v0:** v0 ships free markdown (`artifact_md`) to keep the loop minimal. Structured
+output is the natural *next* quality lever for the agent-cache flagship — reserve the column now (done),
+add per-type schemas + validation when the corpus is worth querying by field. Pairs with consensus
+(#6) since structured outputs are also what make N-of-M agreement tractable.

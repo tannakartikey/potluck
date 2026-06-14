@@ -188,3 +188,29 @@ agent build whatever interface it wants. The `web/` board stays as an optional
 reference demo. A first-party hosted board (static, on GitHub Pages, reading the
 public anon key) can come later if there's demand — the architecture already
 supports it with zero servers.
+
+## 15. Config, logs & audit storage — **[deferred; recommendation below]**
+
+Where Potluck's *operational* state lives (beyond tasks / results / contributors):
+
+- **Contributor-local** (`~/.potluck/`, never uploaded): `config.toml` (topics,
+  budget, model, backend), `credentials` (the secret key, mode `600`), and a local
+  run history (`runs.jsonl` or a small SQLite) that powers the end-of-run cost
+  summary and `potluck status` ("you've donated X tokens / $Y across N tasks").
+  Local-first by design — privacy + the BYO ethos.
+- **Central DB (Supabase) — small, hot state only:** the queue/results/contributors
+  (have) + two cheap additions when needed: a `settings` key-value table (global
+  config — open license, category metadata, feature flags, a future
+  `min_runner_version`) and an append-only `audit_log` of task-lifecycle transitions
+  (created / claimed / submitted / released / flagged) for transparency, debugging,
+  and anti-abuse. Keep it **bounded** (prune/sample) to respect the free-tier size cap.
+- **Git — large / append-only:** result markdown (canonical, have), optional
+  reasoning traces, and optionally a periodic export of the `audit_log` so history is
+  permanent, forkable, and doesn't bloat the DB.
+- **Heavy logs / metrics / observability:** deferred — unnecessary at friends-scale.
+  If ever needed, a free tier (Supabase logs, a Git-appended log, or Grafana Cloud
+  free) — out of v0.
+
+**Recommendation:** v0 adds **no new storage** — local config/creds + the existing
+tables suffice. The `settings` table and `audit_log` are the first additions when the
+need appears (both non-breaking, like the other reserved hooks).

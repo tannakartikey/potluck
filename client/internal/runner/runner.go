@@ -44,6 +44,7 @@ not invent sources or facts.`
 func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, opts Options) error {
 	fmt.Printf("🍲 potluck — backend=%s · model=%s · topics=%s · budget=%d tok/task\n",
 		be.Name(), orAny(opts.Model), topicsStr(opts.Topics), opts.BudgetTokens)
+	fmt.Printf("   db: %s\n", dbHost(cl))
 	if opts.MaxTasks > 0 {
 		fmt.Printf("   up to %d task(s); Ctrl-C to stop early\n\n", opts.MaxTasks)
 	} else {
@@ -186,6 +187,19 @@ func guard(s string) string {
 		}
 	}
 	return ""
+}
+
+// dbHost shows which database a run targets, so it's obvious whether you're hitting prod
+// or a test DB (set via the POTLUCK_SUPABASE_URL override). Cheap footgun insurance.
+func dbHost(cl *api.Client) string {
+	h := strings.TrimPrefix(strings.TrimPrefix(cl.BaseURL, "https://"), "http://")
+	if i := strings.IndexByte(h, '/'); i >= 0 {
+		h = h[:i]
+	}
+	if cl.IsProd() {
+		return h + " (prod)"
+	}
+	return h + " (non-prod override)"
 }
 
 func short(s string) string {

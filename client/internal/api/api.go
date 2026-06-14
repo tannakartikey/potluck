@@ -42,6 +42,10 @@ func New() *Client {
 	return &Client{BaseURL: url, AnonKey: anon, HTTP: &http.Client{Timeout: 30 * time.Second}}
 }
 
+// IsProd reports whether the client is pointed at the published prod database (i.e. no
+// POTLUCK_SUPABASE_URL override is in effect). Used to label which DB a run targets.
+func (c *Client) IsProd() bool { return c.BaseURL == defaultURL }
+
 type Contributor struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`

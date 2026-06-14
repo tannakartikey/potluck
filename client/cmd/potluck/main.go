@@ -251,6 +251,13 @@ func cmdStatus(args []string) {
 	cl := api.New()
 	cfg, err := config.Load()
 	check(err)
+	db := cl.BaseURL
+	if cl.IsProd() {
+		db += " (prod)"
+	} else {
+		db += " (non-prod override)"
+	}
+	fmt.Println("db:     ", db)
 	fmt.Println("backend:", orDefault(cfg.Backend, "claude-code"))
 	fmt.Println("model:  ", orDefault(cfg.Model, "haiku"))
 	if !config.HasKey() || cfg.ContributorID == "" {

@@ -202,13 +202,21 @@ function initChrome() {
     });
   }
 
-  $$(".copy-btn").forEach((btn) =>
+  $$(".copy-btn, .copy-prompt").forEach((btn) =>
     btn.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(btn.dataset.copy || "");
         const t = btn.textContent; btn.textContent = "Copied ✓"; btn.classList.add("done");
         setTimeout(() => { btn.textContent = t; btn.classList.remove("done"); }, 1600);
       } catch {}
+    }));
+
+  // Get-started tabs: "Hand it to your agent" / "Under the hood"
+  $$(".tab").forEach((tab) =>
+    tab.addEventListener("click", () => {
+      const name = tab.dataset.tab;
+      $$(".tab").forEach((t) => { const on = t === tab; t.classList.toggle("is-active", on); t.setAttribute("aria-selected", String(on)); });
+      $$(".tab-panel").forEach((p) => { p.hidden = p.dataset.panel !== name; });
     }));
 
   revealObserve(document.querySelectorAll(".section-head, .steps li, .mini-card, .trust-card, .terminal"));

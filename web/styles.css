@@ -236,6 +236,30 @@ em { font-style: normal; color: var(--primary); }
 .art-foot { display: flex; gap: .8rem; font-size: .8rem; color: var(--faint); margin-top: auto; padding-top: .6rem; border-top: 1px dashed var(--border-2); }
 
 /* ───────── get started ───────── */
+.tabs { display: inline-flex; gap: .3rem; background: var(--paper-2); border: 1px solid var(--border);
+  border-radius: 13px; padding: .3rem; margin-bottom: 1.7rem; }
+.tab { font: inherit; font-size: .96rem; font-weight: 650; color: var(--muted); background: transparent;
+  border: none; border-radius: 10px; padding: .55rem 1.15rem; cursor: pointer; transition: background .15s, color .15s; }
+.tab:hover { color: var(--ink); }
+.tab.is-active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.tab-panel[hidden] { display: none; }
+@media (max-width: 440px) { .tabs { display: flex; width: 100%; } .tab { flex: 1; padding: .55rem .5rem; font-size: .9rem; } }
+
+/* agent-first chat */
+.chat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.6rem 1.7rem; box-shadow: var(--shadow); max-width: 780px; }
+.chat-row { display: flex; gap: .9rem; align-items: flex-start; }
+.chat-avatar { font-size: 1.7rem; line-height: 1.3; flex: 0 0 auto; }
+.chat-bubble { background: var(--paper-2); border: 1px solid var(--border); border-radius: 16px; border-top-left-radius: 5px; padding: 1rem 1.25rem; }
+.chat-who { display: block; font-size: .76rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--primary); margin-bottom: .55rem; }
+.chat-bubble p { margin: 0; font-size: 1.12rem; line-height: 1.62; color: var(--ink); }
+.copy-prompt { margin-top: 1.2rem; font: inherit; font-size: .92rem; font-weight: 650; color: #fff; background: var(--primary);
+  border: none; border-radius: 10px; padding: .6rem 1.15rem; cursor: pointer; transition: background .2s; }
+.copy-prompt:hover { background: #e0633a; }
+.copy-prompt.done { background: var(--green, #3a7d54); }
+.copy-prompt:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.agent-note { margin: 1.4rem 0 0; color: var(--muted); font-size: 1.02rem; line-height: 1.62; max-width: 780px; }
+
 .start-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 1.4rem; align-items: start; }
 @media (max-width: 880px) { .start-grid { grid-template-columns: 1fr; } }
 .terminal { position: relative; background: #1c1611; border: 1px solid #34291f; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-lg); }
@@ -280,8 +304,7 @@ em { font-style: normal; color: var(--primary); }
 /* ───────── trust (calm tinted band, themed) ───────── */
 .trust { background: var(--paper-2); max-width: none; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .trust > * { max-width: var(--maxw); margin-left: auto; margin-right: auto; }
-.trust-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 1.1rem; }
-@media (max-width: 880px) { .trust-grid { grid-template-columns: repeat(2,1fr); } }
+.trust-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(214px, 1fr)); gap: 1.1rem; }
 @media (max-width: 480px) { .trust-grid { grid-template-columns: 1fr; } }
 .trust-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.4rem 1.3rem; box-shadow: var(--shadow); }
 .trust-ic { font-size: 1.55rem; }

@@ -31,6 +31,8 @@ func main() {
 		cmdRun(os.Args[2:])
 	case "search":
 		cmdSearch(os.Args[2:])
+	case "submit":
+		cmdSubmit(os.Args[2:])
 	case "usage":
 		cmdUsage(os.Args[2:])
 	case "status":
@@ -53,6 +55,7 @@ usage:
   potluck register [--name <handle>]   create your contributor key (one time)
   potluck run [flags]                  claim → run → submit, until --max-tasks or Ctrl-C
   potluck search <query>               full-text search the open task board
+  potluck submit --title T --prompt P  submit a task (lands 'pending' until AI-moderated)
   potluck usage                        show your Claude plan usage (session + week)
   potluck status                       show your identity + what you've donated
   potluck version
@@ -64,8 +67,13 @@ run flags:
   --model M         model: Claude alias (haiku|sonnet|opus) or full id; for codex
                     pass a Codex model (e.g. gpt-5-codex) or omit to use its default
   --max-tasks N     stop after N tasks (default: 0 = until queue empty / Ctrl-C)
+  --watch           when the queue is empty, wait and re-poll instead of exiting
+  --poll N          --watch poll interval in seconds (default 15)
   --max-week N      stop when your weekly plan usage reaches N% (Claude Code; 0 = off)
   --max-session N   stop when your 5-hour session usage reaches N% (Claude Code; 0 = off)
+
+submit flags:
+  --title, --prompt (required), --acceptance, --category, --tags a,b, --budget N
 
 spec & docs: https://github.com/tannakartikey/potluck/blob/main/AGENTS.md
 `)
@@ -104,6 +112,8 @@ func cmdRun(args []string) {
 	budget := fs.Int("budget", 0, "skip tasks needing more than N tokens")
 	model := fs.String("model", "", "model alias or id")
 	maxTasks := fs.Int("max-tasks", 0, "stop after N tasks (0 = until empty / Ctrl-C)")
+	watch := fs.Bool("watch", false, "wait and re-poll when the queue is empty")
+	poll := fs.Int("poll", 15, "poll interval in seconds for --watch")
 	maxWeek := fs.Int("max-week", 0, "stop at N% weekly plan usage (0 = off)")
 	maxSession := fs.Int("max-session", 0, "stop at N% session (5h) usage (0 = off)")
 	_ = fs.Parse(args)
@@ -142,6 +152,8 @@ func cmdRun(args []string) {
 		MaxTasks:      *maxTasks,
 		MaxWeekPct:    *maxWeek,
 		MaxSessionPct: *maxSession,
+		Watch:         *watch,
+		PollSeconds:   *poll,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -169,6 +181,31 @@ func cmdSearch(args []string) {
 			t.Title, orDefault(t.CategorySlug, "-"), orDefault(strings.Join(t.Tags, ", "), "-"), t.TokenBudget)
 	}
 	fmt.Printf("\n%d open task(s). Work them: potluck run --topics <category-or-tag>\n", len(rows))
+}
+
+func cmdSubmit(args []string) {
+	fs := flag.NewFlagSet("submit", flag.ExitOnError)
+	title := fs.String("title", "", "task title")
+	prompt := fs.String("prompt", "", "task prompt (self-contained)")
+	acceptance := fs.String("acceptance", "", "machine-checkable acceptance criteria")
+	category := fs.String("category", "", "primary category slug")
+	tags := fs.String("tags", "", "comma-separated tags")
+	budget := fs.Int("budget", 5000, "token budget")
+	_ = fs.Parse(args)
+
+	if !config.HasKey() {
+		fmt.Fprintln(os.Stderr, "register first: potluck register")
+		os.Exit(1)
+	}
+	if strings.TrimSpace(*title) == "" || strings.TrimSpace(*prompt) == "" {
+		fmt.Fprintln(os.Stderr, "need --title and --prompt")
+		os.Exit(1)
+	}
+	key, err := config.LoadKey()
+	check(err)
+	t, err := api.New().SubmitTask(context.Background(), key, *title, *prompt, *acceptance, *category, splitCSV(*tags), *budget)
+	check(err)
+	fmt.Printf("✅ submitted (id %s) — status: %s.\n   It becomes claimable once an AI moderator accepts it.\n", t.ID, t.Status)
 }
 
 func cmdUsage(args []string) {

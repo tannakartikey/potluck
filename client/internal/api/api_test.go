@@ -104,3 +104,25 @@ func TestSearchBuildsFTSQuery(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 }
+
+func TestSubmitTaskSendsFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/v1/rpc/submit_task" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["p_title"] != "My task" || body["p_prompt"] != "Do the thing." {
+			t.Errorf("body = %+v", body)
+		}
+		_, _ = w.Write([]byte(`{"id":"s9","status":"pending","title":"My task"}`))
+	}))
+	defer srv.Close()
+	tsk, err := testClient(srv).SubmitTask(context.Background(), "k", "My task", "Do the thing.", "<=100 words", "writing", []string{"writing"}, 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tsk.Status != "pending" || tsk.ID != "s9" {
+		t.Fatalf("got %+v", tsk)
+	}
+}

@@ -21,8 +21,10 @@ type Options struct {
 	BudgetTokens  int
 	Model         string
 	MaxTasks      int
-	MaxWeekPct    int // stop when weekly plan usage ≥ this % (0 = off; Claude Code only)
-	MaxSessionPct int // stop when the 5-hour session usage ≥ this % (0 = off)
+	MaxWeekPct    int  // stop when weekly plan usage ≥ this % (0 = off; Claude Code only)
+	MaxSessionPct int  // stop when the 5-hour session usage ≥ this % (0 = off)
+	Watch         bool // when the queue is empty, wait and re-poll instead of exiting
+	PollSeconds   int  // --watch poll interval (default 15)
 }
 
 // maxConsecFail stops the loop after repeated failures (likely rate-limited, out of
@@ -59,7 +61,11 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 		}
 	}()
 
-	for i := 0; opts.MaxTasks == 0 || i < opts.MaxTasks; i++ {
+	attempts := 0
+	for {
+		if opts.MaxTasks > 0 && attempts >= opts.MaxTasks {
+			return nil
+		}
 		if ctx.Err() != nil {
 			return nil // Ctrl-C
 		}
@@ -80,8 +86,20 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 			return fmt.Errorf("claim: %w", err)
 		}
 		if task == nil {
-			fmt.Println("· queue empty for your topics — nothing to do right now.")
-			return nil
+			if !opts.Watch {
+				fmt.Println("· queue empty for your topics — nothing to do right now.")
+				return nil
+			}
+			poll := opts.PollSeconds
+			if poll <= 0 {
+				poll = 15
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(time.Duration(poll) * time.Second):
+			}
+			continue
 		}
 
 		if opts.BudgetTokens > 0 && task.TokenBudget > opts.BudgetTokens {
@@ -89,6 +107,7 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 			_ = cl.Release(ctx, key, task.ID, false)
 			continue // a skip is not a failure
 		}
+		attempts++
 
 		prompt := buildPrompt(task)
 		resp, err := be.Run(ctx, backend.Request{
@@ -132,7 +151,6 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 		totalUSD += resp.Usage.CostUSD
 		fmt.Printf("· done   %-50s %s tok · $%.4f · %s\n", short(task.Title), commas(resp.Usage.Total()), resp.Usage.CostUSD, resp.ReportedModel)
 	}
-	return nil
 }
 
 func buildPrompt(t *api.Subtask) string {

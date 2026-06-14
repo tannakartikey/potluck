@@ -216,6 +216,29 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Subtask
 	return rows, nil
 }
 
+// SubmitTask submits a new task; it lands 'pending' (not claimable) until an AI moderator
+// accepts it. Returns the created task.
+func (c *Client) SubmitTask(ctx context.Context, key, title, prompt, acceptance, category string, tags []string, budget int) (*Subtask, error) {
+	body := map[string]any{
+		"p_key":           key,
+		"p_title":         title,
+		"p_prompt":        prompt,
+		"p_acceptance":    acceptance,
+		"p_category_slug": category,
+		"p_tags":          tags,
+		"p_token_budget":  budget,
+	}
+	data, err := c.rpc(ctx, "submit_task", body)
+	if err != nil {
+		return nil, err
+	}
+	var out Subtask
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("decode submit_task: %w", err)
+	}
+	return &out, nil
+}
+
 func isJSONNull(b []byte) bool {
 	s := bytes.TrimSpace(b)
 	return len(s) == 0 || string(s) == "null"

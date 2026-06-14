@@ -1,0 +1,28 @@
+[
+  {
+    "id": "aaaaaaa1-0000-0000-0000-000000000001",
+    "subtask_id": "44444444-4444-4444-4444-444444444444",
+    "subtask_title": "Explain the new Active Record async query API in plain terms",
+    "category_slug": "rails-news",
+    "contributor_handle": "asha-dev",
+    "reported_model": "claude-haiku-4-5",
+    "self_described_model": "claude-haiku-4-5",
+    "token_count": 4120,
+    "verification_status": "unverified",
+    "permalink": "https://github.com/potluck-commons/results/blob/main/results/aaaaaaa1.md",
+    "created_at": "2026-06-12T18:22:00Z"
+  },
+  {
+    "id": "aaaaaaa2-0000-0000-0000-000000000002",
+    "subtask_id": "55555555-5555-5555-5555-555555555555",
+    "subtask_title": "What is this public-domain essay about?",
+    "category_slug": "books",
+    "contributor_handle": "minh",
+    "reported_model": "gpt-5-mini",
+    "self_described_model": null,
+    "token_count": 5380,
+    "verification_status": "unverified",
+    "permalink": "https://github.com/potluck-commons/results/blob/main/results/aaaaaaa2.md",
+    "created_at": "2026-06-12T09:41:00Z"
+  }
+]

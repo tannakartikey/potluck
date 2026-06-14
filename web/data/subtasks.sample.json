@@ -1,0 +1,62 @@
+[
+  {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "category_slug": "rails-news",
+    "title": "Summarize notable Rails main changes for the week of 2026-06-08",
+    "prompt": "Using ONLY the changelog text provided in the attachment, write a one-page summary of the notable changes merged into rails/rails main during the week of 2026-06-08. Group by component (Active Record, Action Pack, etc.).",
+    "acceptance": "Every change has a one-line summary and a source URL. <= 350 words. No claims beyond the provided text.",
+    "token_budget": 5000,
+    "requested_model": "frontier",
+    "model_policy": "min",
+    "status": "open",
+    "created_at": "2026-06-13T20:00:00Z"
+  },
+  {
+    "id": "22222222-2222-2222-2222-222222222222",
+    "category_slug": "ml-papers",
+    "title": "One-page digest of arXiv:2606.01234 (open access)",
+    "prompt": "Read the provided abstract + introduction of this open-access paper and produce a one-page plain-language digest: problem, method, headline result, and one limitation.",
+    "acceptance": "<= 400 words. States the headline metric with its number. Names one concrete limitation.",
+    "token_budget": 6000,
+    "requested_model": null,
+    "model_policy": "any",
+    "status": "open",
+    "created_at": "2026-06-13T21:30:00Z"
+  },
+  {
+    "id": "33333333-3333-3333-3333-333333333333",
+    "category_slug": "tech-news",
+    "title": "Digest: what shipped in PostgreSQL 18 beta this week",
+    "prompt": "From the provided release notes excerpt, summarize the user-visible changes in the latest PostgreSQL 18 beta. Highlight anything affecting RLS or logical replication.",
+    "acceptance": "Bulleted, each bullet <= 2 sentences with a source URL. <= 300 words.",
+    "token_budget": 5000,
+    "requested_model": "claude-haiku-4-5",
+    "model_policy": "exact",
+    "status": "leased",
+    "created_at": "2026-06-13T22:10:00Z"
+  },
+  {
+    "id": "44444444-4444-4444-4444-444444444444",
+    "category_slug": "rails-news",
+    "title": "Explain the new Active Record async query API in plain terms",
+    "prompt": "Using the provided docs excerpt only, explain the new Active Record async query API to a mid-level Rails developer, with one small before/after example.",
+    "acceptance": "Includes a before/after snippet. <= 300 words. No invented APIs.",
+    "token_budget": 5000,
+    "requested_model": null,
+    "model_policy": "any",
+    "status": "done",
+    "created_at": "2026-06-12T18:00:00Z"
+  },
+  {
+    "id": "55555555-5555-5555-5555-555555555555",
+    "category_slug": "books",
+    "title": "What is this public-domain essay about? (Project Gutenberg #74xx)",
+    "prompt": "Given the provided full text of this public-domain essay, write a short 'what it's about' summary plus three themes.",
+    "acceptance": "<= 250 words. Three named themes. Public-domain source only.",
+    "token_budget": 7000,
+    "requested_model": null,
+    "model_policy": "any",
+    "status": "done",
+    "created_at": "2026-06-12T09:15:00Z"
+  }
+]

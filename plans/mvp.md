@@ -1,0 +1,72 @@
+# MVP — the smallest end-to-end loop
+
+**Goal:** a maintainer writes one good atomic task → a friend runs the runner on
+their own Claude → an attributed, AI-labeled markdown artifact appears on the
+public board. Nothing more.
+
+If that one loop works and feels good, everything else is incremental.
+
+## Definition of done
+
+> A row in `subtasks` (status `open`) → friend runs `potluck run --once` →
+> the task is claimed, executed in safe mode on the friend's own account, the
+> result is submitted, the subtask flips to `done`, and the artifact renders on
+> the static board, attributed to the friend and their self-reported model.
+
+## Build checklist
+
+### A. Database (Supabase) — *~half a day*
+- [ ] Create the Supabase project; capture `SUPABASE_URL` + anon key (public) and
+      keep the access token in `.env` (gitignored, already set up).
+- [ ] Apply [`db/schema.sql`](../db/schema.sql) (SQL editor or `supabase db push`).
+- [ ] Enable GitHub OAuth in Supabase Auth.
+- [ ] **Mandatory gate:** hit the PostgREST API **as the anon role** and confirm
+      anon can `SELECT` but **cannot** insert a result or mutate a subtask's
+      status. This is the #1 security check. (See [threat-model](../docs/threat-model.md) §6.)
+
+### B. Seed content — *~1 hour*
+- [ ] Hand-write 5–10 atomic `subtasks` with crisp, machine-checkable
+      `acceptance` criteria across 1–2 categories (e.g. `rails-news`, `ml-papers`).
+- [ ] Each prompt is **self-contained** (paste the source text/links inline) and
+      sized for a single sub-5k-token call.
+
+### C. Runner (start as a Claude Code skill) — *~1–2 days*
+- [ ] `potluck login` → GitHub OAuth → store JWT locally; never upload the
+      provider credential.
+- [ ] `claim_subtask(topics)` via PostgREST RPC.
+- [ ] Wrap the untrusted `prompt` as **data** inside the fixed system prompt;
+      run **one no-tools turn** on the contributor's own Claude
+      (`--allowedTools "" --max-turns 1`), under `--budget`.
+- [ ] Minimal output guard: scan for obvious secret patterns / local paths; set
+      `output_guard_passed`.
+- [ ] `submit_result(...)` with `reported_model`, `token_count`, `prompt_hash`.
+- [ ] On failure/over-budget: `release_lease()` (discard partial, re-queue).
+
+### D. Static board (GitHub Pages) — *~1 day*
+- [ ] `web/` renders the open queue + the "what your credits built" feed from the
+      mock JSON in `web/data/` (already in PostgREST shape).
+- [ ] Swap the data source from mock JSON → live Supabase (URL + anon key). Same
+      shape, so it's a config change.
+- [ ] Per-category view + a contributor attribution line per artifact.
+
+### E. Publisher (can be faked first) — *~half a day*
+- [ ] v0: the board reads `artifact_md` straight from the DB (skip Git mirroring).
+- [ ] v1: one scheduled GitHub Action batch-commits accepted results to the public
+      results repo and writes back `repo_path`/`permalink`.
+
+## Explicitly NOT in the MVP
+
+Consensus, reputation, trust levels, public task submission by strangers, the
+automated task generator, partial/resume, non-Claude backends, image inputs,
+coding tasks. All tracked in [roadmap](roadmap.md). The MVP is the *loop*, proven.
+
+## Sequencing
+
+```
+A (db + anon gate) ──► B (seed tasks) ──► C (runner skill) ──► D (board) ──► E (publisher)
+        the gate in A is blocking: do not demo until anon-write is confirmed dead.
+```
+
+First milestone to celebrate: the first artifact on the board that a friend's
+spare tokens produced — with you having spent zero central compute to make it
+happen.

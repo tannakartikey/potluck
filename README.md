@@ -86,28 +86,26 @@ effect: you can contribute with *any* agent you already have.
 
 ```
 potluck/
-├── README.md
+├── README.md · AGENTS.md · DISCLAIMER.md · Makefile
 ├── docs/
-│   ├── vision.md           # the why, the metaphor, principles, non-goals
-│   ├── architecture.md     # system design, data flow, deployment
-│   ├── threat-model.md     # ★ read first: safety, ToS, what's protected & what isn't
-│   ├── data-model.md       # entities, statuses, the claim primitive
-│   ├── client-spec.md      # the runner: backends, lease protocol, safe mode, budget
-│   └── api-spec.md          # the thin API (Supabase REST/RPC + RLS)
+│   ├── vision.md · use-cases.md     # the why + what Potluck is (and isn't) for
+│   ├── threat-model.md              # ★ read first: the safety model
+│   ├── architecture.md · data-model.md · client-spec.md · api-spec.md
 ├── plans/
-│   ├── roadmap.md          # phased milestones
-│   ├── mvp.md              # the smallest end-to-end loop to demo
-│   └── open-questions.md   # real decisions + recommendations (incl. model attestation)
+│   ├── roadmap.md · vision.md       # phased build plan + the trajectory/line-of-sight
+│   ├── mvp.md
+│   └── open-questions.md            # the live decisions (storage, attestation, guardrails, …)
 ├── db/
-│   └── schema.sql          # Postgres schema + RLS + claim/submit RPCs
-├── web/                    # static GitHub Pages site (no build step)
-│   ├── index.html
-│   ├── styles.css
-│   ├── app.js
-│   └── data/               # mock JSON in exact PostgREST shape (live later)
-├── client/                 # the runner (spec now; code lands with the MVP)
-├── .env.example
-└── LICENSE                 # MIT
+│   ├── schema.sql                   # canonical: tables + RLS + key-gated SECURITY DEFINER RPCs
+│   ├── migrations/                  # 001 submission · 002 trusted moderation
+│   └── seed.sql
+├── client/                          # the runner (Go): register · run · moderate · search · submit · usage · status · grant-moderator
+├── docker/Dockerfile                # the locked-down sandbox image
+├── web/                             # static site, live at kartikey.dev/potluck (board + gallery read the DB)
+│   └── data/                        # sample JSON fallback (real reads via config.js)
+├── scripts/                         # apply-schema.sh · use-staging.sh
+├── .github/workflows/               # Pages deploy + release (checksummed binaries on tag)
+└── LICENSE                          # MIT
 ```
 
 ## Install

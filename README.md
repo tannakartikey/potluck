@@ -110,23 +110,19 @@ potluck/
 
 ## Install
 
-**From a release (recommended).** Download the binary for your OS/arch from the
-[Releases](https://github.com/tannakartikey/potluck/releases) page and **verify its checksum**
-against the published `SHA256SUMS` before running it:
+v0 keeps it simple — **install from source** (bleeding-edge; no release/version-tag ceremony):
 
 ```bash
-# macOS arm64 example
-curl -LO https://github.com/tannakartikey/potluck/releases/latest/download/potluck-darwin-arm64
-curl -LO https://github.com/tannakartikey/potluck/releases/latest/download/SHA256SUMS
-shasum -a 256 --ignore-missing -c SHA256SUMS      # verify BEFORE you run it
-chmod +x potluck-darwin-arm64 && sudo mv potluck-darwin-arm64 /usr/local/bin/potluck
+go install github.com/tannakartikey/potluck/client/cmd/potluck@latest
+# or, from a clone:
+make build                       # → bin/potluck
+# or just:
+cd client && go build ./cmd/potluck
 ```
 
-Releases are **pinned and checksummed** — no silent auto-update; you choose when to upgrade and can
-verify exactly what you run ([why](plans/open-questions.md)).
-
-**From source.** `make build` → `bin/potluck`, or `cd client && go build ./cmd/potluck`. It's a single
-static, stdlib-only Go binary.
+It's a single static, stdlib-only Go binary. Installing from source means Go's module checksum
+database makes tampering detectable — there's no prebuilt binary to trust. (Pinned, signed releases
+are a possible *future* step, not a v0 requirement — see [open-questions #18](plans/open-questions.md).)
 
 ## Quickstart
 

@@ -113,11 +113,12 @@ What the goals were really proxies for — and what we **can** deliver:
 1. **Per-identity accountability** (not code-identity). Trust *keys*, enforce in the RPC. **Shipped**
    for moderation (trusted-moderator allowlist). Extensible: per-request HMAC over the canonicalized
    RPC body so every write is attributable + revocable.
-2. **Supply-chain integrity.** Reproducible Go builds + signed releases (cosign/Sigstore, SLSA
-   provenance) + published checksums, so *honest* users verify *their* download is the real artifact.
-   Protects against a malicious mirror, **not** against the machine owner — frame it exactly so.
-   *(Tension to resolve: today's "bleeding-edge auto-update, no version pinning" choice undercuts
-   this — pin + verify before it means anything.)*
+2. **Supply-chain integrity (a FUTURE option).** Reproducible Go builds + signed releases
+   (cosign/Sigstore, SLSA provenance) + published checksums, so *honest* users verify *their* download
+   is the real artifact. Protects against a malicious mirror, **not** against the machine owner.
+   *Note:* v0 deliberately chooses simplicity — install from source / bleeding-edge, no pinned releases
+   (#18). Verifiable releases require pinning, so that's a future step we'd take together IF we want it,
+   not a v0 requirement.
 3. **Fault tolerance over secrecy.** N-of-M independent moderators with diverse models: one party can
    forge their own verdict, not a quorum of others'. The right answer to "protect the prompt."
 4. **Capability-free approval + server-enforced invariants.** The structural defang: approval grants

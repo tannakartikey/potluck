@@ -307,16 +307,24 @@ when the cap is hit — exactly the "use up to my limit, but don't touch next we
 want a $-budget cap instead (`--max-budget-usd` is available per-run via Claude Code). A unified
 per-provider usage abstraction is the remaining work.
 
-## 18. Binary provenance / install integrity — **[v0: checksummed pinned releases; signing + auto-update deferred]**
+## 18. Binary provenance / install integrity — **[v0: install from source, bleeding-edge — keep it simple]**
 
-**Shipped:** a `Makefile` + `.github/workflows/release.yml` that, on a `vX.Y.Z` tag, cross-compile
-the static stdlib-only binary for darwin/linux/windows × amd64/arm64, generate a **`SHA256SUMS`**
-file, and publish them as a GitHub Release. Install = download the binary + **verify the checksum**
-before running, or build from source (`make build` / `go build`). **Decision (per #28): v0 ships
-PINNED, checksummed releases — NOT silent bleeding-edge auto-update** (reverses the earlier #13
-auto-update lean): the contributor chooses when to upgrade and can verify exactly what they run.
-**Still deferred:** release signing (cosign/minisign) + a `-trimpath`/reproducible-build attestation,
-and an *opt-in* `potluck upgrade` that verifies the checksum/signature before swapping the binary.
+**Decision [locked by the owner]: v0 stays SIMPLE — install from source, bleeding-edge, NO git
+tags / pinned releases / version-control ceremony.** The owner explicitly chose simplicity over
+signed/pinned releases. So: install via `go install …@latest` or `make build` (or a plain
+`go build`); there is **no** tag-triggered release pipeline and no GitHub Releases flow in v0.
+`git describe`-style versions aren't used; the binary stamps a commit hash for support only.
+
+**Why this is fine for v0:** the runner is a thin client of a public, documented HTTP protocol, and
+v0 is friends-/trusted-scale. Go's module checksum DB (`sum.golang.org`) already makes
+`go install`-from-source tampering detectable — there's no prebuilt binary to trust.
+
+**The security tradeoff, noted honestly (a FUTURE option, NOT a v0 requirement):** #28 showed that a
+silent bleeding-edge auto-updater would undercut any verifiable-release story (you can't checksum a
+target that's always changing). So IF/when we ever want supply-chain-verifiable distribution, that's
+the time to add **pinned, checksummed, signed releases** (cosign/SLSA) + an *opt-in* `potluck upgrade`
+that verifies before swapping — a deliberate future step, not something to bolt on now. For v0 we keep
+the owner's simple path.
 
 How a contributor trusts the runner binary matches the public source:
 
@@ -672,10 +680,11 @@ guarantee is snake oil.
 - **Per-identity accountability, not code-identity.** Vet *keys*, enforce in the RPC. **Shipped:** the
   trusted-moderator allowlist (`trust_level >= 1` to moderate; `grant_trust` admin RPC; `moderated_by`
   audit). Future: per-request HMAC over the canonicalized RPC body → every write attributable + revocable.
-- **Supply-chain integrity.** Reproducible Go builds + signed releases (cosign/Sigstore, SLSA) + published
-  checksums: *honest* users verify *their* download is the real artifact (defends against a malicious
-  mirror, NOT against the machine owner). **Tension:** the current "bleeding-edge auto-update, no pinning"
-  decision undercuts this — pin + verify before it's meaningful.
+- **Supply-chain integrity (FUTURE option).** Reproducible Go builds + signed releases (cosign/Sigstore,
+  SLSA) + published checksums: *honest* users verify *their* download is the real artifact (defends
+  against a malicious mirror, NOT against the machine owner). Note v0 deliberately keeps it simple —
+  install from source, no pinned releases (#18); verifiable releases would require pinning, so they're a
+  future step we'd take only if we want them, not a v0 requirement.
 - **Fault tolerance over secrecy.** N-of-M independent moderators + diverse models: you can forge your own
   verdict, not a quorum of others'. The achievable answer to "protect the prompt."
 - **The real defang:** approval grants no capability (sandbox) + server-enforced invariants in the RPCs.

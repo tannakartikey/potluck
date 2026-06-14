@@ -25,6 +25,13 @@ describes them); the output is always text. **No** shell, files, web, or code
 execution — that's what makes a stranger's task safe to run on your machine.
 Coding tasks are a separate, much later track behind real sandboxing.
 
+**v0 launches with NON-HARMFUL tasks only.** Beyond the no-tools invariant, the launch content scope
+is deliberately benign (knowledge/explanation/drafting), screened by trusted-moderator AI moderation
+(#27, trust-gated). This is what makes the sandbox a *sufficient* guarantee at launch — the blast
+radius of any single task is one contained machine + a public note. Higher-stakes scopes (tools,
+writing to real repos, #25) wait for the controls that match their larger blast radius — the full
+staged path is in `plans/vision.md`.
+
 ## 4. Backend — **[locked: Supabase free tier]**
 
 The only option bundling the things needed on a real free tier with zero
@@ -621,3 +628,53 @@ in the roadmap.)
 moderation become the thing that makes execution safe; the sandbox is.** Moderation hardens quality
 and abuse-resistance on top. Build N-of-M + `harm_tier` routing + reputation before opening
 submissions to untrusted strangers (roadmap Phase 3a). See `docs/threat-model.md`.
+
+## 28. "Only our official binary can submit / no one can modify our prompt" — **[settled: impossible as literally asked; reframed]**
+
+**Verdict (from an adversarial 4-scheme design panel): cryptographically impossible** on hardware the
+contributor controls, open-source or not. The panel tried embedded keys/HMAC, zkVM "I-ran-the-official-code"
+proofs, TEE/platform attestation (App Attest / Play Integrity / SGX / CVM), and supply-chain signing, and
+the adversary broke every one. Root reason: with public source on an owned machine, the binary is a
+client-side **oracle the adversary fully controls**; cryptography authenticates **keys** and verifies
+**statements** — it cannot attest the **identity of code** on hardware the verifier doesn't own. The
+moderation prompt is a client-side string compiled into the public binary and run against the
+contributor's own account; there is no server in that loop to protect it. Any product claiming the literal
+guarantee is snake oil.
+
+**What the wish was really proxying for — and what we ship instead** (full treatment in `plans/vision.md`):
+- **Per-identity accountability, not code-identity.** Vet *keys*, enforce in the RPC. **Shipped:** the
+  trusted-moderator allowlist (`trust_level >= 1` to moderate; `grant_trust` admin RPC; `moderated_by`
+  audit). Future: per-request HMAC over the canonicalized RPC body → every write attributable + revocable.
+- **Supply-chain integrity.** Reproducible Go builds + signed releases (cosign/Sigstore, SLSA) + published
+  checksums: *honest* users verify *their* download is the real artifact (defends against a malicious
+  mirror, NOT against the machine owner). **Tension:** the current "bleeding-edge auto-update, no pinning"
+  decision undercuts this — pin + verify before it's meaningful.
+- **Fault tolerance over secrecy.** N-of-M independent moderators + diverse models: you can forge your own
+  verdict, not a quorum of others'. The achievable answer to "protect the prompt."
+- **The real defang:** approval grants no capability (sandbox) + server-enforced invariants in the RPCs.
+
+**Recommendation:** stop chasing client attestation; invest in identity/accountability + reproducible
+signed builds + N-of-M. The trusted-moderator allowlist is the first, shipped piece.
+
+## 29. Private / federated token-sharing networks — **[parked: future fork; departs from the public-commons mission]**
+
+**Idea (the user's, explicitly flagged as "a little out of the moral scope"):** let organizations form a
+**private network** that shares spare token capacity *with each other* — my leftover credits run their
+tasks, theirs run mine — where the **tasks and results stay private to the network** (potentially
+encrypted at rest and in transit), instead of becoming an open public commons. Same primitives (a queue,
+key-gated RPCs, BYO-agent on your own account), different **visibility and trust model**.
+
+**Why capture it:** the structure generalizes cleanly — Potluck is, underneath, "a shared work-queue +
+BYO-compute + provenance," which a closed consortium could run for itself. There's real pull (companies
+with bursty, asymmetric spare capacity; a B2B "token mutual-aid" arrangement).
+
+**Why it's a fork, not the path:** it trades away the **"open"** that defines Potluck — public tasks in,
+open attributed artifacts out (#2, #3). Private tasks + encryption + members-only results is a *different
+product* sharing the codebase, not an evolution of the commons.
+
+**Open design questions if pursued:** membership/onboarding & trust between orgs; encryption (who holds
+keys; the DB stores only ciphertext; how moderation/quality works on data we can't read); isolation from
+the public board (separate DB/instance vs. row-level partition + RLS); the safe-mode/sandbox story still
+applies (a partner's task is still untrusted to *your* machine); ToS/compliance and the legal shape of a
+token-sharing agreement; and the mission/branding tension (keep it a clearly-separate offering). **Parked
+as a future fork; not on the public-Potluck roadmap.** See `plans/vision.md` → "Divergent fork."

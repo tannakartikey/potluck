@@ -9,6 +9,10 @@ critical path.
 If you read nothing else, read **Invariants That Never Relax** below. They are
 non-negotiable across every phase. A PR that violates one will not be merged.
 
+For the *trajectory* — where the project goes after v0 and the security/trust machinery that must
+grow with each expansion of scope — see **[`vision.md`](vision.md)**. This roadmap is the concrete
+build plan; `vision.md` is the line of sight.
+
 ---
 
 ## What Potluck is (one paragraph)

@@ -164,7 +164,7 @@ Each threat below lists **impact**, **who bears it**, **v1 mitigation**, and an 
 - **RPC-only writes, contributor resolved from the key.** There is no broad client `INSERT`/`UPDATE` grant. A result row is written only by the `submit_result()` RPC, which sets `contributor_id` to the contributor resolved server-side from the presented key (via `_contributor_for_key()`), requires a matching active lease, and requires `output_guard_passed = true`. Claims happen only through the `claim_subtask()` RPC (atomic, `FOR UPDATE SKIP LOCKED`), which sets `leased_by` the same way.
 - **Small, trusted/invite-ish contributor set.** v1 is run among known contributors, which is what makes thin anti-sybil defenses acceptable.
 
-**Residual (honest).** An *authenticated* contributor can still submit junk in v1, and — because identity is just a self-generated key with no account-age cost — a determined actor can mint many keys cheaply. This scales only as far as the contributor set is trusted. The real defenses are **deferred and documented as the gate before opening the network**: Discourse/OSM-style trust levels (new accounts get small daily claim limits and cannot create tasks), proof-of-work-lite, per-identity rate limits, moderation/auto-screening of *new-submitter task submissions* (the injection vector for the whole network), gold/honeypot tasks, and N-of-M redundancy. See §9. Free-tier DoS is bounded today only by RLS read-only-plus-RPC writes + `submit_task()`'s per-hour rate limit & dedupe + the small contributor set; broader per-identity write rate limits land with trust levels.
+**Residual (honest).** An *authenticated* contributor can still submit junk in v1, and — because identity is just a self-generated key with no account-age cost — a determined actor can mint many keys cheaply. But a minted key **cannot self-approve its own submissions**: `moderate_task()` now requires `trust_level >= 1` (enforced server-side), so junk lands `pending` and only a vetted moderator can flip it to `open`. This scales only as far as the *moderator* set is trusted. The remaining defenses are **deferred and documented as the gate before opening the network**: Discourse/OSM-style trust levels beyond the moderation slice (new accounts get small daily claim limits and cannot create tasks), proof-of-work-lite, per-identity rate limits, N-of-M *independent* moderators + diverse models for *new-submitter task submissions* (the injection vector for the whole network), gold/honeypot tasks, and N-of-M redundancy. See §9. Free-tier DoS is bounded today only by RLS read-only-plus-RPC writes + `submit_task()`'s per-hour rate limit & dedupe + the small contributor set; broader per-identity write rate limits land with the deeper trust levels.
 
 ### 4.6 Privacy & copyright on derived artifacts
 
@@ -229,11 +229,11 @@ v1 allows **image inputs**: a task may attach image URLs that the runner passes 
 
 The research recommends moderation of submitted tasks and graduated trust levels as input-side defenses. **In v1 these are real but thin:**
 
-- **Direct submission + AI moderation exists.** A contributor can submit a task via `submit_task()`; it lands `pending` (NOT claimable) with DB-level guards (format checks, ≤20/hour rate limit, exact-duplicate rejection via a normalized `dedupe_key`). An AI moderator — a *different* contributor running `potluck moderate` — then records accept/reject/escalate via `moderate_task()` (a contributor cannot moderate their own submission). Only `accept` flips a task to `open`. The moderator runs the submission through its agent in the **same text-only no-tools safe mode** as a worker, and an unclear verdict **fails safe to `escalate`** (`needs_review`), never auto-accept.
+- **Direct submission + TRUSTED AI moderation exists.** A contributor can submit a task via `submit_task()`; it lands `pending` (NOT claimable) with DB-level guards (format checks, ≤20/hour rate limit, exact-duplicate rejection via a normalized `dedupe_key`). Moderation is now restricted **server-side** to **trusted** contributors: `moderate_task()` requires the caller resolve to a contributor with `trust_level >= 1`, or it raises `not authorized`. An AI moderator — a *different*, vetted contributor running `potluck moderate` — then records accept/reject/escalate via `moderate_task()` (a contributor cannot moderate their own submission). The verdict is attributable: `moderate_task()` records `moderated_by` for audit. Only `accept` flips a task to `open`. The moderator runs the submission through its agent in the **same text-only no-tools safe mode** as a worker, and an unclear verdict **fails safe to `escalate`** (`needs_review`), never auto-accept. This closes a real abuse gap: a rogue minted key can still *submit* (it lands `pending`), but it **cannot self-approve** — only a vetted moderator can flip a task to `open`.
 - **Moderation is a quality/abuse filter — NOT the control that makes execution safe.** A *wrongly approved* task still only ever runs on a worker under no-tools safe mode + the container sandbox (#23): approval grants **no capability**. The worst a fooled moderator can do is let a junk/abusive-*content* task reach `open`, where it runs harmlessly text-only and is correctable post-hoc (flag → re-open/supersede, #24). So a prompt-injected moderator can emit only a wrong *verdict*; it cannot act. The hardening that matters before opening submissions to untrusted strangers — **N-of-M independent moderators + diverse models, `harm_tier` routing, and reputation-gated submit/moderate rights** — is designed in `plans/open-questions.md` #27.
-- **Trust levels are reserved, not active.** The data model reserves `reputation`, `trust_level`, and `validated_streak` columns (unused in v1). Real trust levels — small daily claim limits for new accounts, no task-creation rights until validated work accumulates, graduated flag→warn→throttle→ban moderation — are the **first thing hardened when the network opens to strangers** (§9, Phase 3), alongside #27's N-of-M moderation.
+- **Trust levels: the moderation slice is now ACTIVE.** `contributors.trust_level` is no longer reserved — it gates the moderation write path: `0` = untrusted (default) · `>=1` = trusted moderator · `>=2` = admin. A new RPC `grant_trust(p_key, p_contributor_id, p_level)` lets an **admin** (`trust_level >= 2`) grant (level `1`) or revoke (level `0`) **moderator** trust on a contributor. It **cannot mint admins** (no self-escalation): the first admin is bootstrapped **out-of-band** (set `trust_level = 2` via the Supabase console / `service_role` on a known-good contributor), so the trust root is a deliberate human decision a key can never escalate into. The `reputation` and `validated_streak` columns remain reserved. The *rest* of the trust-levels machinery — small daily claim limits for new accounts, no task-creation rights until validated work accumulates, graduated flag→warn→throttle→ban moderation — is still **deferred** to when the network opens to strangers (§9, Phase 3), alongside #27's N-of-M moderation, `harm_tier` routing, and reputation-gated rights.
 
-If you are evaluating whether to contribute *today*: you are joining a small, trusted queue with single-moderator AI screening, not a hardened open marketplace. The honest reason the thin defenses are acceptable is that the contributor set is small and known — and that, independent of moderation, every task runs only under the no-tools + container sandbox.
+If you are evaluating whether to contribute *today*: you are joining a small, trusted queue with single trusted-moderator AI screening, not a hardened open marketplace. The honest reason the thin defenses are acceptable is that the contributor set is small and known — and that, independent of moderation, every task runs only under the no-tools + container sandbox. Note that trusted moderation does **not** change the execution safety guarantee: approval still grants no capability, and accepted tasks run only in text-only no-tools safe mode + the container sandbox.
 
 ---
 
@@ -247,12 +247,16 @@ Policy shape (v1):
 
 ```
   contributors     anon SELECT of display_name (attribution/leaderboards)
-                   NO client UPDATE; rows created only by register_contributor() RPC
+                   NO client UPDATE; rows created only by register_contributor()
+                   RPC. trust_level is mutated ONLY by grant_trust() (admin-gated)
+                   or out-of-band bootstrap — never by a client UPDATE
   contributor_keys NO anon SELECT, NO grant (RLS on, no policy)
                    holds only the SHA-256 of each key; touched only by the RPCs
   subtasks         anon SELECT (public board)
                    status flips ONLY via claim_subtask()/submit_result()/
-                   submit_task()/moderate_task() RPCs — NO broad client UPDATE
+                   submit_task()/moderate_task() RPCs — NO broad client UPDATE.
+                   moderate_task() additionally requires trust_level >= 1 and
+                   records moderated_by (audit)
   results          anon SELECT (public commons)
                    NO client INSERT — written ONLY by the submit_result() RPC,
                    which sets contributor_id = the contributor resolved from the
@@ -261,6 +265,8 @@ Policy shape (v1):
 ```
 
 RLS grants the `anon` role **SELECT only**; there is deliberately no client `INSERT`/`UPDATE` grant, so all writes flow through the key-gated RPCs that set `contributor_id`/`leased_by` from the resolved key — never from client input.
+
+The same pattern is how **moderation authority** is enforced. You cannot attest an open-source client binary running on hardware you don't control — but you *can* vet an **identity** (a contributor key) and enforce "only trusted keys moderate" **server-side in the RPC**. So the trust boundary is the **DB**, not the client: `moderate_task()` resolves the caller from the key and refuses unless `trust_level >= 1`, and `grant_trust()` refuses unless the caller is an admin (`trust_level >= 2`). Both are granted to `anon` but are key-gated (and admin-gated) inside. Reads stay fully public; only the moderation *write* path is gated. (Cross-ref `plans/vision.md` and open-questions #27/#28.)
 
 The atomic claim primitive prevents two contributors from racing on the same task and self-heals crashed leases:
 
@@ -307,7 +313,7 @@ A contributor can sign a fabricated result. Signing supports auditing and attrib
 | 6 | Subscription "individual use" drift | Medium | Contributor | Mitigated: API-key path default; per-contributor volume cap |
 | 7 | Misinformation / low-quality result | Medium–High (task-dependent) | Commons | Partial: provenance + machine-checkable acceptance criteria; `unverified` label. Consensus deferred |
 | 8 | Cost-griefing (denial of wallet) | Medium | Contributor | Mitigated client-side: hard budget, --max-turns 1, debounce, caps, timeout |
-| 9 | Sybil / spam / corpus poisoning | Medium | Commons | Thin: self-generated keys (no account-age signal) + key-gated RPC-only writes + small trusted set + submit_task per-hour rate limit & dedupe. Trust levels deferred |
+| 9 | Sybil / spam / corpus poisoning | Medium | Commons | Thin, improving: self-generated keys (no account-age signal) + key-gated RPC-only writes + small trusted set + submit_task per-hour rate limit & dedupe + **trusted-only moderation** (a minted key submits but can't self-approve; only `trust_level >= 1` flips to `open`, with `moderated_by` audit). Deeper trust levels (claim limits, N-of-M moderation) deferred |
 | 10 | Free-tier DB DoS | Low–Medium | Infra | Thin: RLS read-only + RPC-only writes + submit_task per-hour rate limit + small set. Broader per-identity rate limits deferred |
 | 11 | Copyright / privacy on derived artifacts | Low–Medium | Contributor + commons | Mitigated: fair-use scoping + attestation + AI-origin label; heuristic leak guard |
 
@@ -321,8 +327,8 @@ Honesty requires naming what v1 does *not* protect, and when it will. None of th
 
 | Deferred defense | Protects against | Gate / phase |
 |------------------|------------------|--------------|
-| Trust levels (small new-account limits; no task creation until validated) | Sybil/spam; new-submitter task injection | Before opening to strangers (Phase 3) |
-| Moderation / auto-screening of submitted tasks | Malicious task text fanning out to the network | Before opening to strangers (Phase 3) |
+| Deeper trust levels (small new-account claim limits; no task creation until validated; reputation/validated_streak; flag→warn→throttle→ban) — *the moderation gate (trust_level >= 1 to moderate) already ships* | Sybil/spam; new-submitter task injection | Before opening to strangers (Phase 3) |
+| N-of-M *independent* moderators + diverse models + harm_tier routing for submitted tasks — *single trusted-moderator screening already ships* | Malicious task text fanning out to the network | Before opening to strangers (Phase 3) |
 | Proof-of-work-lite + per-identity rate limits | Sybil bursts; free-tier DoS | Before opening to strangers (Phase 3) |
 | Optimistic challenge windows + gold/honeypot tasks | Low-effort/wrong results (Tier 0) | Phase 3 |
 | N-of-M consensus on **structured** outputs, with enforced model/contributor diversity | Misinformation on factual tasks (Tier 1) | Phase 4 |

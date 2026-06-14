@@ -122,13 +122,13 @@ the runner generates the key locally on first run (`potluck register`) and calls
 | `id`           | `uuid`        | no   | `gen_random_uuid()` | PK. A plain random UUID (no `auth.uid()`, no external identity provider). |
 | `display_name` | `text`        | yes  | —             | Self-chosen. Shown on leaderboards / contributor pages. |
 | `created_at`   | `timestamptz` | no   | `now()`       | |
+| `trust_level`  | `int`         | no   | `0`           | **Active.** Moderation authority, enforced server-side in the RPCs. `0` = untrusted (default) · `>= 1` = trusted moderator (may run `moderate_task()`) · `>= 2` = admin (may run `grant_trust()`). Set only by `grant_trust()` (for levels 0/1) or out-of-band bootstrap (for level 2). |
 
 **Reserved (v2, unused in v1, no later migration needed):**
 
 | Column            | Type  | Default | Future use |
 |-------------------|-------|---------|------------|
 | `reputation`      | `int` | `0`     | Reputation score for adaptive replication. |
-| `trust_level`     | `int` | `0`     | Discourse/OSM-style trust tiers (claim limits, task-creation rights). |
 | `validated_streak`| `int` | `0`     | Consecutive validated results; drives BOINC-style spot-check frequency. |
 
 **RLS:**
@@ -187,6 +187,7 @@ public board the static site renders. One row = one atomic work unit.
 | `status`           | `text`        | no   | `'open'`    | Lifecycle. `CHECK (status IN ('open','leased','done','failed'))`. See [Status lifecycle](#status-lifecycle). |
 | `leased_by`        | `uuid`        | yes  | —           | FK → `contributors(id)`. Who currently holds the lease. |
 | `lease_expires_at` | `timestamptz` | yes  | —           | When the current lease lapses and the row becomes claimable again. |
+| `moderated_by`     | `uuid`        | yes  | —           | FK → `contributors(id)`. **Audit:** which trusted moderator accepted/rejected this submission. Set server-side by `moderate_task()` to the moderator resolved from the presented key (never client input). |
 | `created_at`       | `timestamptz` | no   | `now()`     | Queue ordering. |
 
 **Reserved (v2, present now so heavy machinery bolts on without reshaping rows):**
@@ -206,8 +207,11 @@ public board the static site renders. One row = one atomic work unit.
   `leased_by` to the contributor resolved from the presented key, never from client
   input. There is deliberately no client `UPDATE` grant.
 - **No client `INSERT` grant.** Task creation goes through `submit_task()` (any
-  contributor with a key; the task lands `pending` until an AI moderator accepts it
-  via `moderate_task()`). `submitted_by` is set server-side from the key.
+  contributor with a key; the task lands `pending` until a **trusted moderator**
+  accepts it via `moderate_task()`). `submitted_by` is set server-side from the key.
+  `moderate_task()` requires the caller resolve to a contributor with
+  `trust_level >= 1` (else it raises `not authorized`), refuses to moderate one's
+  own submission, and stamps `moderated_by` with the moderator's id for audit.
 
 ---
 
@@ -373,29 +377,56 @@ being foreign keys, so it is a non-breaking change.
 
 ---
 
-## Reputation
+## Reputation and trust
 
-There is **no reputation logic in v1**, by design. The columns
-`contributors.reputation`, `contributors.trust_level`, and
-`contributors.validated_streak` are reserved (default `0`) so the later machinery
-reads existing columns:
+`contributors.trust_level` is **active** and gates the moderation write path (see
+[Trusted moderation](#trusted-moderation) below). The remaining reputation columns —
+`contributors.reputation` and `contributors.validated_streak` — are still reserved
+(default `0`) so the later machinery reads existing columns:
 
 - `validated_streak` drives **BOINC-style adaptive replication** — once a
   (contributor, model) pair has enough consecutive validated results, it gets
   occasional spot-checks instead of full N-of-M replication. Random spot-checks
   never fully stop (to defend against reputation "cash-out").
-- `trust_level` drives **Discourse/OSM-style graduated privileges** — new
-  accounts get small daily claim limits and cannot create tasks; privileges
-  unlock as validated work accumulates.
 - `reputation` is the headline leaderboard number.
+
+The richer **Discourse/OSM-style graduated privileges** (daily claim limits,
+task-creation rights that unlock as validated work accumulates) remain future work
+layered on these reserved columns; today `trust_level` carries only the
+moderation/admin tiers.
 
 v1's only anti-abuse posture is: self-generated-key identity (cheap to mint, so a
 weak sybil signal on its own) + writes funneled entirely through key-gated
 `SECURITY DEFINER` RPCs (a contributor's results and leases are stamped with the
-contributor resolved from their key, never client input) + a small, trusted
-contributor set. This scales exactly as far as the contributor set is trusted,
-which is why reputation/trust-levels are the first thing added when the network
-opens to strangers.
+contributor resolved from their key, never client input) + server-side `trust_level`
+gating on the moderation path + a small, trusted contributor set. This scales exactly
+as far as the contributor set is trusted, which is why the rest of the
+reputation machinery is the first thing added when the network opens to strangers.
+
+### Trusted moderation
+
+The moderation write path is gated **server-side, in the RPC** — the database is the
+trust boundary, not the client. You cannot attest an open-source binary running on
+hardware you don't control, but you *can* vet an **identity** (a contributor key) and
+enforce "only trusted keys moderate" inside the `SECURITY DEFINER` function. Reads
+stay public; only the moderation write is gated.
+
+- **`moderate_task(p_key, p_subtask_id, p_verdict, p_note)`** resolves the caller
+  from `p_key` and **requires `trust_level >= 1`**, else it raises `not authorized`.
+  It still refuses to moderate the caller's own submission, and it records
+  `moderated_by` (the moderator's id) for audit.
+- **`grant_trust(p_key, p_contributor_id, p_level)`** lets an **admin**
+  (`trust_level >= 2`) grant (`p_level = 1`) or revoke (`p_level = 0`) **moderator**
+  trust on a contributor. It deliberately **cannot mint admins** (no self-escalation,
+  and `p_level` is restricted to `0`/`1`). The first admin is bootstrapped
+  **out-of-band** — set `trust_level = 2` on a known-good contributor via the Supabase
+  console / `service_role`. Like the other write RPCs, `grant_trust` is `GRANT`ed to
+  `anon` but is key-gated and admin-gated inside.
+
+This does **not** change the execution-safety guarantee: approval grants no
+capability. An accepted task still runs only in text-only, no-tools safe mode inside
+the container sandbox. (See `plans/vision.md` and open-questions #27/#28 for the
+trust trajectory.)
 
 ---
 

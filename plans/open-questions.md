@@ -214,3 +214,22 @@ Where Potluck's *operational* state lives (beyond tasks / results / contributors
 **Recommendation:** v0 adds **no new storage** — local config/creds + the existing
 tables suffice. The `settings` table and `audit_log` are the first additions when the
 need appears (both non-breaking, like the other reserved hooks).
+
+## 16. Binary / large-artifact storage (non-text tasks) — **[deferred]**
+
+v0 is text-out, so artifacts are markdown in Git — no object storage needed. But
+tasks whose **output** is binary (a generated image / PDF / audio / video) or whose
+**input** is a large binary (a PDF or image to host rather than link) will need
+**S3-like object storage**: the DB/Git keeps a pointer, the bytes live in a bucket.
+
+Options, cheapest-fit first:
+- **Supabase Storage** — already in our stack, S3-compatible, included on the free
+  tier. First choice (one fewer service to run).
+- **Cloudflare R2** — S3-compatible with **zero egress fees**; best if artifacts get
+  downloaded heavily.
+- **DigitalOcean Spaces / AWS S3** — standard fallbacks.
+
+Same pattern as text results: store only `{bucket, key, content_type, sha256, size,
+permalink}` in the DB; the binary lives in a public-read bucket. Out of v0 — lands
+with the first non-text task type (see also v1 scope: image **inputs** are allowed
+today as linked URLs in `subtasks.attachments`).

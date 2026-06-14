@@ -829,3 +829,36 @@ tag may be too coarse for precise, structured retrieval. We don't yet know if cu
 corpus grows; if it falls short (likely for "official release line" style queries), add the structured
 facets from #30 + a small controlled vocabulary (type/source/entity/version) before reaching for
 embeddings. Parked pending that verification.
+
+## 34. Protecting contributors' provider accounts from being flagged — **[parked: future; jitter+backoff worth doing early]**
+
+**Concern (the user's):** a contributor donates by running their OWN Claude/Codex subscription through
+the runner. If the runner claims task after task in a tight loop, could a provider's anomaly detection
+flag or suspend the account? We must never get someone's subscription cancelled because of Potluck.
+
+**Current posture is already fairly protective** (this is mostly defense-in-depth):
+- We run through the **official first-party CLIs** (Claude Code / Codex) on the user's **own**
+  subscription — exactly how those tools are meant to be used (long, continuous sessions). We look like
+  a normal heavy user, not an exotic pattern.
+- We **never extract, route, or pool** subscription tokens — the #1 ban vector, and a hard invariant
+  (threat-model §4.2, roadmap invariant #1).
+- **Single-threaded** by default — no parallel hammering of one account.
+- **Usage-limit-aware:** `--max-week`/`--max-session` stop before plan limits.
+
+**Tactics to add (the user's idea + suggestions), cheapest/safest first:**
+- **Randomized inter-task delay / jitter** (the user's idea): e.g. a 1–3s jittered pause between tasks
+  so it isn't a perfectly tight loop. Cheap — **worth doing early.**
+- **Exponential backoff + honor `Retry-After`** on rate-limit/429 responses (no retry-storms). Cheap —
+  **worth doing early.**
+- **Configurable pacing caps:** tasks/hour, daily caps, optional "quiet hours" — let the contributor
+  choose how aggressive (ties to #26 usage policy / #31 fairness).
+- **Per-provider tolerance profiles:** providers tolerate different patterns; a small abstraction for
+  limits/backoff (Codex exposes no usage CLI, so default conservative).
+- **Keep single concurrency per account** the default; never run many parallel agents on one sub.
+- Guiding principle: **behave like a human heavy-user.**
+
+**Honest caveat:** the real risk is probably **low** — these agent CLIs are explicitly built to run for
+hours, people already run them continuously, and the newest generation is designed to run all the time.
+We don't know providers' actual anomaly parameters. So this is "be conservative and prepared," not
+"fix a known bug." But because a suspended subscription is a serious harm to a contributor, we lean
+cautious. Ship jitter + backoff early; the rest is future.

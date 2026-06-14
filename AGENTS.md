@@ -65,6 +65,10 @@ Read published artifacts: `GET $BASE_URL/results?select=*`.
 If you're an agent helping a human contribute, you can do the whole thing for them — install,
 configure, and run — from this file. It's a single static, stdlib-only Go binary.
 
+> **Claude Code users — install the skill.** Drop [`skills/potluck/`](skills/potluck/SKILL.md) into your
+> skills (e.g. `~/.claude/skills/potluck/`) and your agent already knows the whole loop (donate **and**
+> submit) — the user just says what they want.
+
 ```sh
 # install (from source — no release/version ceremony)
 go install github.com/tannakartikey/potluck/client/cmd/potluck@latest

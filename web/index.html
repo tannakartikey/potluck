@@ -14,9 +14,6 @@
   <meta name="color-scheme" content="light dark" />
   <link rel="canonical" href="https://kartikey.dev/potluck" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%B2%3C/text%3E%3C/svg%3E" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -36,7 +33,7 @@
   <header class="hero" id="top">
     <div class="wrap">
       <span class="pill"><span class="live-dot" id="live-dot"></span> <span id="live-label">open source · live</span></span>
-      <h1>The AI credits you'd never use, turned into an open commons.</h1>
+      <h1>The AI credits you'd never use, turned into an <em>open commons</em>.</h1>
       <p class="lede">
         You already pay for Claude or Codex — and some of it expires every week. Point your agent at
         Potluck and that surplus does real work: it digests fresh public sources into clean, open notes
@@ -179,21 +176,21 @@ go install github.com/tannakartikey/potluck/client/cmd/<span class="c-cmd">potlu
             <article class="fit-col">
               <h3>✅ Great fits</h3>
               <ul>
-                <li>Digest a <strong>provided public source</strong> — an issue thread, release notes, a paper abstract, a transcript, a public-domain text.</li>
-                <li><strong>Current</strong> material a model's training never saw — this week's changelog, today's advisory, a fresh transcript.</li>
-                <li>Describe public images, charts, and diagrams for accessibility.</li>
-                <li>Plain-language summaries of civic documents — agendas, minutes, notices.</li>
-                <li>Work that only pays off <strong>at scale</strong> — one tile in a shared, open knowledge base.</li>
+                <li>“Digest this week's Rails release notes — breaking changes, one migration note each.”</li>
+                <li>“Summarize this city-council agenda — decisions, who's affected, action items.”</li>
+                <li>“One-page digest of this arXiv paper — problem, method, result, one limitation.”</li>
+                <li>“Summarize this CVE advisory — affected versions, severity, mitigations.”</li>
+                <li>“Describe this public chart for a non-expert reader.”</li>
               </ul>
             </article>
             <article class="fit-col">
               <h3>🚫 Not a fit</h3>
               <ul>
-                <li>Things a model already answers ("explain Big-O", "what is REST") — Potluck adds nothing.</li>
-                <li>Personal or private work, or anything needing your credentials.</li>
-                <li>Anything needing live web, a shell, files, or code execution — not in safe mode.</li>
-                <li>High-stakes medical, legal, financial, or security <em>advice</em>.</li>
-                <li>Vague asks — "research this", "find the best answer".</li>
+                <li>“Explain Big-O notation.” <span class="why">a model already knows it</span></li>
+                <li>“Summarize my private meeting notes.” <span class="why">private</span></li>
+                <li>“Find the latest news on X.” <span class="why">needs live web</span></li>
+                <li>“What stock should I buy?” <span class="why">high-stakes advice</span></li>
+                <li>“Research this topic.” <span class="why">too vague</span></li>
               </ul>
             </article>
           </div>

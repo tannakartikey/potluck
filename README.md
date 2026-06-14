@@ -100,6 +100,7 @@ potluck/
 │   ├── migrations/                  # 001 submission · 002 trusted moderation
 │   └── seed.sql
 ├── client/                          # the runner (Go): register · run · moderate · search · submit · usage · status · grant-moderator
+├── skills/potluck/SKILL.md          # Claude Code skill: an agent that can donate + submit
 ├── docker/Dockerfile                # the locked-down sandbox image
 ├── web/                             # static site, live at kartikey.dev/potluck (board + gallery read the DB)
 │   └── data/                        # sample JSON fallback (real reads via config.js)

@@ -1,4 +1,4 @@
-/* Potluck — warm editorial landing. Display type: Fraunces. Follows OS light/dark.
+/* Potluck — warm editorial landing. Display type: system serif (Iowan/Palatino/Georgia). Follows OS light/dark.
    Design goals: big readable type, generous whitespace, ONE confident accent, calm rhythm. */
 :root {
   --bg:       #faf7f0;   /* warm paper */
@@ -21,7 +21,7 @@
   --shadow:   0 1px 2px rgba(34,28,21,.03), 0 10px 30px -16px rgba(34,28,21,.14);
   --shadow-lg:0 28px 60px -30px rgba(34,28,21,.28);
   --wrap:     1080px;
-  --display:  "Fraunces", "Iowan Old Style", Palatino, Georgia, serif;
+  --display:  "Iowan Old Style", "Palatino Linotype", Palatino, "Georgia", serif;
   --sans:     system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono:     ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
@@ -195,8 +195,9 @@ code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); p
 .fit-col { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1.7rem 1.8rem; box-shadow: var(--shadow); }
 .fit-col h3 { font-family: var(--display); font-weight: 600; font-size: 1.35rem; margin-bottom: 1rem; }
 .fit-col ul { margin: 0; padding-left: 1.25rem; color: var(--ink); font-size: 1.05rem; line-height: 1.55; }
-.fit-col li { margin-bottom: .8rem; }
+.fit-col li { margin-bottom: .9rem; }
 .fit-col li:last-child { margin-bottom: 0; }
+.fit-col .why { display: block; color: var(--faint); font-size: .88em; font-style: italic; margin-top: .1rem; }
 
 /* ── safety (dark band) ── */
 .band-dark .display { color: #fff; }

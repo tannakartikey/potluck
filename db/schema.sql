@@ -65,10 +65,14 @@ create table if not exists subtasks (
   model_policy     text not null default 'any'
                    check (model_policy in ('any','min','exact')),
   status           text not null default 'open'
-                   check (status in ('open','leased','done','failed')),
+                   check (status in ('open','leased','done','failed','pending','rejected','needs_review')),
   leased_by        uuid references contributors(id),
   lease_expires_at timestamptz,
   created_at       timestamptz not null default now(),
+  -- submission / moderation: tasks land 'pending' via submit_task, moderated to 'open'/'rejected'
+  submitted_by     uuid references contributors(id),
+  rejection_note   text,
+  dedupe_key       text,                              -- md5(normalize(category+title+prompt)); unique
   -- generated full-text search vector over the task text + tags (GIN-indexed below)
   search           tsvector generated always as (
                      to_tsvector('english',
@@ -85,6 +89,7 @@ create index if not exists subtasks_category_idx on subtasks(category_slug);
 create index if not exists subtasks_tags_idx     on subtasks using gin(tags);
 create index if not exists subtasks_search_idx   on subtasks using gin(search);
 create index if not exists subtasks_priority_idx on subtasks(priority desc, created_at);
+create unique index if not exists subtasks_dedupe_idx on subtasks(dedupe_key) where dedupe_key is not null;
 
 -- ── results  (metadata + provenance; markdown BODY lives in Git) ─────────────
 create table if not exists results (
@@ -223,6 +228,74 @@ end;
 $$;
 
 -- ============================================================================
+-- Task submission + AI moderation
+-- ============================================================================
+
+-- normalize text for dedup (lowercase; collapse non-alphanumerics → single spaces; trim)
+create or replace function normalize_task_text(t text)
+returns text language sql immutable as $$
+  select trim(regexp_replace(lower(coalesce(t, '')), '[^a-z0-9]+', ' ', 'g'))
+$$;
+
+-- submit_task: anyone with a key submits; the task lands 'pending' (NOT claimable) until an AI
+-- moderator accepts it. DB-level guards (no server): format-check, per-hour rate limit, and exact
+-- duplicate rejection via a normalized dedupe_key (a UNIQUE index is the backstop).
+create or replace function submit_task(p_key text, p_title text, p_prompt text,
+                                       p_acceptance text default null, p_category_slug text default null,
+                                       p_tags text[] default '{}', p_token_budget int default 5000,
+                                       p_requested_model text default null, p_model_policy text default 'any')
+returns subtasks language plpgsql security definer set search_path = public, extensions as $$
+declare cid uuid; dk text; existing_id uuid; recent int; s subtasks;
+begin
+  cid := _contributor_for_key(p_key);
+  if cid is null then raise exception 'invalid key'; end if;
+  if length(coalesce(trim(p_title),  '')) < 8     then raise exception 'title too short'; end if;
+  if length(coalesce(trim(p_prompt), '')) < 20    then raise exception 'prompt too short (make it self-contained)'; end if;
+  if length(p_title)  > 200   then raise exception 'title too long'; end if;
+  if length(p_prompt) > 20000 then raise exception 'prompt too long'; end if;
+  if coalesce(p_token_budget, 0) < 500 or p_token_budget > 50000 then raise exception 'token_budget out of range (500..50000)'; end if;
+  if p_model_policy not in ('any','min','exact') then raise exception 'bad model_policy'; end if;
+
+  -- rate limit: at most 20 submissions per contributor per hour
+  select count(*) into recent from subtasks where submitted_by = cid and created_at > now() - interval '1 hour';
+  if recent >= 20 then raise exception 'rate limit: too many submissions this hour'; end if;
+
+  -- exact-duplicate rejection
+  dk := md5(normalize_task_text(coalesce(p_category_slug, '') || ' ' || p_title || ' ' || p_prompt));
+  select id into existing_id from subtasks where dedupe_key = dk limit 1;
+  if existing_id is not null then raise exception 'duplicate of task %', existing_id; end if;
+
+  insert into subtasks (category_slug, tags, title, prompt, acceptance, token_budget,
+                        requested_model, model_policy, status, submitted_by, dedupe_key)
+  values (p_category_slug, coalesce(p_tags, '{}'), p_title, p_prompt, p_acceptance, p_token_budget,
+          p_requested_model, p_model_policy, 'pending', cid, dk)
+  returning * into s;
+  return s;
+end;
+$$;
+
+-- moderate_task: an AI moderator (a DIFFERENT contributor) records a verdict on a pending task.
+create or replace function moderate_task(p_key text, p_subtask_id uuid, p_verdict text, p_note text default null)
+returns subtasks language plpgsql security definer set search_path = public, extensions as $$
+declare cid uuid; s subtasks;
+begin
+  cid := _contributor_for_key(p_key);
+  if cid is null then raise exception 'invalid key'; end if;
+  if p_verdict not in ('accept','reject','escalate') then raise exception 'bad verdict'; end if;
+  select * into s from subtasks where id = p_subtask_id;
+  if not found then raise exception 'no such task'; end if;
+  if s.status not in ('pending','needs_review') then raise exception 'task is not pending (status=%)', s.status; end if;
+  if s.submitted_by = cid then raise exception 'cannot moderate your own submission'; end if;
+  update subtasks
+     set status = case p_verdict when 'accept' then 'open' when 'reject' then 'rejected' else 'needs_review' end,
+         rejection_note = case when p_verdict = 'reject' then p_note else rejection_note end
+   where id = p_subtask_id
+   returning * into s;
+  return s;
+end;
+$$;
+
+-- ============================================================================
 -- Least-privilege grants
 -- ============================================================================
 revoke all on contributors, contributor_keys, categories, subtasks, results from anon, authenticated;
@@ -235,6 +308,8 @@ grant execute on function register_contributor(text, text)                      
 grant execute on function claim_subtask(text, text[], int)                                    to anon;
 grant execute on function submit_result(text, uuid, text, text, text, int, text, boolean)     to anon;
 grant execute on function release_lease(text, uuid, boolean)                                  to anon;
+grant execute on function submit_task(text, text, text, text, text, text[], int, text, text)  to anon;
+grant execute on function moderate_task(text, uuid, text, text)                               to anon;
 -- internal resolver is never callable directly
 revoke all on function _contributor_for_key(text) from public, anon, authenticated;
 

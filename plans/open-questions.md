@@ -272,17 +272,31 @@ covers v0.
 
 ## 19. Task submission, recurring tasks & duplicates — **[deferred; direction below]**
 
-**Submission.** v0 is maintainer-curated (tasks inserted via SQL / service role; RLS
-blocks public inserts — deliberate, since a submitted task is the network's main injection
-vector, per the threat model). The path to opening it up, cheapest first:
+**Submission.** v0 is maintainer-curated (tasks inserted via SQL / service role). The chosen
+way to open it up is **AI-moderated direct submission** (and it's the on-brand one — agents
+moderating agents):
 
-- **GitHub-native (recommended next):** tasks live as files in a `tasks/` directory
-  (YAML/markdown); contributors open a **PR**; review = moderation; a scheduled Action
-  syncs approved tasks into the DB. Open, versioned, abuse-resistant, near-zero infra.
-- **Authenticated `submit_task(p_key, …)` RPC** later: inserts into a `pending` state,
-  promoted to `open` by a maintainer / trust level / N upvotes — needs the moderation +
-  trust-level machinery (deferred to the "open the network" phase). The CLI (`potluck
-  submit`) and the website form both wrap this RPC.
+- Anyone with a contributor key calls **`submit_task(p_key, …)`** → the task lands as
+  `status='pending'` (not claimable yet).
+- **An AI moderator reviews it** — itself a *system task* run on the donated pool: is it
+  public, non-prohibited, self-contained, does it have acceptance criteria, is it a duplicate,
+  is it an abuse / prompt-injection attempt? Verdict via a constrained schema: **accept**
+  (→ `open`), **reject** (with a note), or **escalate** to human review for borderline cases.
+- The **submitter can appeal** a rejection → human-review queue (bounded, one appeal).
+- **Only `open` (accepted) tasks are claimable** by workers (already true: `claim_subtask`
+  filters `status='open'`).
+
+Why this is safe enough even though "a submitted task is the network's main injection vector":
+the worker runs it in **safe mode (no tools)**, so a moderation *miss* yields at worst a
+bad/abusive *artifact*, never host compromise — moderation is mainly a **quality + spam** filter,
+with safe mode as the real backstop. Still: harden the moderator against prompt-injection (treat
+the submission as DATA; it only emits a verdict, never acts); guard cost-griefing of the
+moderators with cheap pre-filters (dedup, length, format) + per-contributor **rate limits /
+trust levels** before spending moderator tokens; and assign moderation to a *different*
+contributor than the submitter.
+
+(GitHub-PR file-based submission stays an **optional** alternative for those who prefer it — not
+the primary path.) The CLI (`potluck submit`) and the website form both wrap `submit_task`.
 
 **Recurring tasks** ("every day, digest the news"; "weekly Rails changes"): a
 `task_templates` table (prompt + schedule + acceptance) whose instances are **materialized

@@ -779,3 +779,53 @@ SECURITY DEFINER RPCs (no server) — consistent with the architecture.
 
 These are the gate before opening submissions to untrusted strangers (roadmap Phase 3a), layered on the
 shipped basics above.
+
+## 32. Triggers & scheduled task generation (push + pull) — **[parked: future; ties to #19, #26]**
+
+**Idea (the user's):** tasks shouldn't only be hand-submitted — they should be able to fire on a
+**trigger or schedule**, so the digest layer (#flagship) stays fresh automatically. Examples: a daily
+task that digests "what changed in Ruby today"; a task auto-created the moment a new language version,
+news article, or blog post is published.
+
+**Two facilitation models (likely both):**
+1. **Source-pushed (ideal, zero infra for us):** the upstream project adds a GitHub Action / webhook
+   that, on release/publish, calls `submit_task(...)` to create the digest task itself — authoritative
+   and opt-in by the source. (e.g., rails/rails fires a task on a new release.) We just document the
+   recipe.
+2. **Potluck-pulled (fallback, when sources don't push):** a watcher detects "new release / new
+   article / new post" (RSS/Atom, GitHub Releases API, gem/npm/pypi feeds, arXiv, official blogs) and
+   creates the task. **Open question — where does the watcher live?**
+   - On a **contributor's machine** (a `potluck watch`-style daemon polling feeds → `submit_task`):
+     decentralized, but who runs it, and how do many watchers avoid creating duplicates?
+   - A **small central scheduler** Potluck runs (cron): deviates from "no central compute," but task
+     *generation* is low-volume and trust-sensitive — arguably one of the few things worth centralizing
+     (like central moderation, #27/#28). 
+   - **Community-contributed triggers:** people register a feed/source; a shared scheduler fans out.
+- **Guards:** dedup (the `dedupe_key` + #31) so a trigger can't spam; rate-limit per source; only
+  trusted sources/feeds for auto-creation. Recurring/cron tasks were also flagged in **#19**; usage-cycle
+  scheduling on the *contributor* side is **#26**. This entry is the *task-creation* side.
+
+**Recommendation:** ship the **source-pushed recipe first** (a documented `submit_task` GitHub Action —
+no infra), then evaluate a watcher. Decide watcher-location when we get there. Parked.
+
+## 33. Retrieval precision — is tag + full-text search enough? — **[parked: VERIFY, then maybe a richer layer]**
+
+**The problem (the user's example):** the agent-cache is searchable by tag + Postgres full-text (#20).
+But for a query like *"what happened in each **official** Ruby version release"*, searching the `ruby`
+tag returns **every** ruby-tagged post — not specifically the official release line. Free-text + a flat
+tag may be too coarse for precise, structured retrieval. We don't yet know if current search is enough.
+
+**The likely answer (escalating, only as needed):**
+- **Controlled metadata, not just free tags:** mark artifacts with structured facets — `type=release`,
+  `source=official`, `entity=ruby`, `version=3.4.0`, `published=<date>` — so an agent can filter
+  precisely (`type=release AND source=official AND entity=ruby`) instead of guessing from a tag. This is
+  exactly what the **structured-schema work (#30)** enables (query *fields*, not just text), backed by
+  the reserved `results.structured_output`.
+- **Source authority:** distinguish artifacts derived from the *official* source vs. third-party
+  commentary (provenance the trigger/source can set).
+- **Semantic/embedding retrieval** as a later layer if facet+FTS still isn't enough (pgvector).
+
+**Recommendation:** **verify first** — try real precision queries against the current tag+FTS once the
+corpus grows; if it falls short (likely for "official release line" style queries), add the structured
+facets from #30 + a small controlled vocabulary (type/source/entity/version) before reaching for
+embeddings. Parked pending that verification.

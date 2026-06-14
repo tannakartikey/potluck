@@ -17,10 +17,12 @@ import (
 )
 
 type Options struct {
-	Topics       []string
-	BudgetTokens int
-	Model        string
-	MaxTasks     int
+	Topics        []string
+	BudgetTokens  int
+	Model         string
+	MaxTasks      int
+	MaxWeekPct    int // stop when weekly plan usage ≥ this % (0 = off; Claude Code only)
+	MaxSessionPct int // stop when the 5-hour session usage ≥ this % (0 = off)
 }
 
 // maxConsecFail stops the loop after repeated failures (likely rate-limited, out of
@@ -63,6 +65,10 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 		}
 		if consec >= maxConsecFail {
 			fmt.Printf("· stopping after %d consecutive failures (rate-limited, out of budget, or a backend issue?)\n", consec)
+			return nil
+		}
+		if msg := usageStop(ctx, be, opts); msg != "" {
+			fmt.Println(msg)
 			return nil
 		}
 
@@ -195,4 +201,27 @@ func commas(n int) string {
 		out = append(out, s[i])
 	}
 	return string(out)
+}
+
+// usageStop checks plan usage (Claude Code's /usage) and returns a stop message when a
+// configured cap is reached — so a run can "use up to my limit, but not next week's".
+func usageStop(ctx context.Context, be backend.Backend, opts Options) string {
+	if opts.MaxWeekPct <= 0 && opts.MaxSessionPct <= 0 {
+		return ""
+	}
+	ur, ok := be.(backend.UsageReporter)
+	if !ok {
+		return ""
+	}
+	u, err := ur.Usage(ctx)
+	if err != nil {
+		return "" // best-effort: don't block the run on a usage-check failure
+	}
+	if opts.MaxWeekPct > 0 && u.WeekPct >= opts.MaxWeekPct {
+		return fmt.Sprintf("· stopping: weekly usage %d%% ≥ your --max-week %d%% (resets %s)", u.WeekPct, opts.MaxWeekPct, u.WeekResets)
+	}
+	if opts.MaxSessionPct > 0 && u.SessionPct >= opts.MaxSessionPct {
+		return fmt.Sprintf("· stopping: session usage %d%% ≥ your --max-session %d%% (resets %s)", u.SessionPct, opts.MaxSessionPct, u.SessionResets)
+	}
+	return ""
 }

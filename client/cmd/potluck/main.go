@@ -31,6 +31,8 @@ func main() {
 		cmdRun(os.Args[2:])
 	case "search":
 		cmdSearch(os.Args[2:])
+	case "usage":
+		cmdUsage(os.Args[2:])
 	case "status":
 		cmdStatus(os.Args[2:])
 	case "version", "-v", "--version":
@@ -51,6 +53,7 @@ usage:
   potluck register [--name <handle>]   create your contributor key (one time)
   potluck run [flags]                  claim → run → submit, until --max-tasks or Ctrl-C
   potluck search <query>               full-text search the open task board
+  potluck usage                        show your Claude plan usage (session + week)
   potluck status                       show your identity + what you've donated
   potluck version
 
@@ -61,6 +64,8 @@ run flags:
   --model M         model: Claude alias (haiku|sonnet|opus) or full id; for codex
                     pass a Codex model (e.g. gpt-5-codex) or omit to use its default
   --max-tasks N     stop after N tasks (default: 0 = until queue empty / Ctrl-C)
+  --max-week N      stop when your weekly plan usage reaches N% (Claude Code; 0 = off)
+  --max-session N   stop when your 5-hour session usage reaches N% (Claude Code; 0 = off)
 
 spec & docs: https://github.com/tannakartikey/potluck/blob/main/AGENTS.md
 `)
@@ -99,6 +104,8 @@ func cmdRun(args []string) {
 	budget := fs.Int("budget", 0, "skip tasks needing more than N tokens")
 	model := fs.String("model", "", "model alias or id")
 	maxTasks := fs.Int("max-tasks", 0, "stop after N tasks (0 = until empty / Ctrl-C)")
+	maxWeek := fs.Int("max-week", 0, "stop at N% weekly plan usage (0 = off)")
+	maxSession := fs.Int("max-session", 0, "stop at N% session (5h) usage (0 = off)")
 	_ = fs.Parse(args)
 
 	if !config.HasKey() {
@@ -124,12 +131,17 @@ func cmdRun(args []string) {
 		fmt.Fprintf(os.Stderr, "unknown backend %q (supported: claude-code, codex)\n", chosen)
 		os.Exit(1)
 	}
+	if chosen != "claude-code" && (*maxWeek > 0 || *maxSession > 0) {
+		fmt.Fprintf(os.Stderr, "note: --max-week/--max-session need plan-usage reporting (Claude Code only); ignored for %s.\n", chosen)
+	}
 
 	opts := runner.Options{
-		Topics:       splitCSV(*topics),
-		BudgetTokens: pickInt(*budget, cfg.BudgetTokens),
-		Model:        resolveModel(chosen, *model, cfg.Model),
-		MaxTasks:     *maxTasks,
+		Topics:        splitCSV(*topics),
+		BudgetTokens:  pickInt(*budget, cfg.BudgetTokens),
+		Model:         resolveModel(chosen, *model, cfg.Model),
+		MaxTasks:      *maxTasks,
+		MaxWeekPct:    *maxWeek,
+		MaxSessionPct: *maxSession,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -157,6 +169,14 @@ func cmdSearch(args []string) {
 			t.Title, orDefault(t.CategorySlug, "-"), orDefault(strings.Join(t.Tags, ", "), "-"), t.TokenBudget)
 	}
 	fmt.Printf("\n%d open task(s). Work them: potluck run --topics <category-or-tag>\n", len(rows))
+}
+
+func cmdUsage(args []string) {
+	u, err := backend.NewClaudeCode().Usage(context.Background())
+	check(err)
+	fmt.Printf("session (5h): %d%% used · resets %s\n", u.SessionPct, orDefault(u.SessionResets, "?"))
+	fmt.Printf("week (all):   %d%% used · resets %s\n", u.WeekPct, orDefault(u.WeekResets, "?"))
+	fmt.Println("\nTip: potluck run --max-week 90  → donate until 90% of the weekly limit, then stop.")
 }
 
 func cmdStatus(args []string) {

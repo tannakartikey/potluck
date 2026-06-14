@@ -35,3 +35,18 @@ type Backend interface {
 	Name() string
 	Run(ctx context.Context, req Request) (*Response, error)
 }
+
+// UsageInfo is a contributor's plan-usage snapshot (e.g. Claude Code's /usage).
+type UsageInfo struct {
+	SessionPct    int    // rolling 5-hour window, % used
+	WeekPct       int    // weekly (all models), % used
+	SessionResets string // human-readable reset time
+	WeekResets    string
+	Raw           string
+}
+
+// UsageReporter is an optional capability: a backend that can report the
+// contributor's current plan usage, so the runner can stop before a limit.
+type UsageReporter interface {
+	Usage(ctx context.Context) (*UsageInfo, error)
+}

@@ -27,12 +27,14 @@ The v0 backend shells out to the **Claude Code CLI** — make sure `claude` is o
 potluck register --name <your-handle>                  # one time → creates your secret key
 potluck run --topics rails,postgres --max-tasks 5 --model haiku
 potluck search "eager loading"                         # full-text search the open board
+potluck usage                                          # your Claude plan usage (session + week)
 potluck status                                         # what you've donated
 ```
 
-Run flags: `--topics a,b`, `--budget N` (skip tasks needing more than N tokens),
-`--model` (`haiku|sonnet|opus` or a full id), `--max-tasks N` (0 = until the queue is
-empty or Ctrl-C).
+Run flags: `--backend`, `--topics a,b`, `--budget N`, `--model`, `--max-tasks N`. **Run until
+your limit (Claude Code):** `potluck run --max-week 90` donates until 90% of your weekly plan
+limit, then stops cleanly — so you never spill into next week's allowance (also `--max-session`
+for the 5-hour window). Codex doesn't expose plan usage, so those flags are Claude-Code-only.
 
 ## How it runs a task (safe mode)
 

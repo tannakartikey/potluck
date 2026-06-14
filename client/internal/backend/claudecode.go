@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -107,4 +109,39 @@ func dominantModel(m map[string]ccModelUsage) string {
 		}
 	}
 	return best
+}
+
+var (
+	reUsageSession = regexp.MustCompile(`(?mi)^current session:\s*(\d+)% used.*resets\s*(.+)$`)
+	reUsageWeek    = regexp.MustCompile(`(?mi)^current week \(all models\):\s*(\d+)% used.*resets\s*(.+)$`)
+)
+
+// Usage runs `claude -p "/usage"` and parses the contributor's plan-usage snapshot
+// (session = rolling 5-hour window; week = weekly all-models). This is what makes a
+// "run until my limit, but don't touch next week" mode possible.
+func (c *ClaudeCode) Usage(ctx context.Context) (*UsageInfo, error) {
+	cmd := exec.CommandContext(ctx, c.Bin, "-p", "/usage")
+	cmd.Dir = os.TempDir()
+	cmd.Stdin = nil
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("claude /usage: %v: %s", err, strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, fmt.Errorf("claude /usage: %w", err)
+	}
+	return parseUsage(string(out)), nil
+}
+
+func parseUsage(s string) *UsageInfo {
+	u := &UsageInfo{Raw: s}
+	if m := reUsageSession.FindStringSubmatch(s); m != nil {
+		u.SessionPct, _ = strconv.Atoi(m[1])
+		u.SessionResets = strings.TrimSpace(m[2])
+	}
+	if m := reUsageWeek.FindStringSubmatch(s); m != nil {
+		u.WeekPct, _ = strconv.Atoi(m[1])
+		u.WeekResets = strings.TrimSpace(m[2])
+	}
+	return u
 }

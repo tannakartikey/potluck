@@ -2,8 +2,29 @@ package backend
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+func TestParseUsage(t *testing.T) {
+	s := "You are currently using your subscription to power your Claude Code usage\n\n" +
+		"Current session: 8% used · resets Jun 14 at 7:09pm (Asia/Calcutta)\n" +
+		"Current week (all models): 4% used · resets Jun 15 at 11:29am (Asia/Calcutta)\n" +
+		"Current week (Sonnet only): 0% used · resets Jun 15 at 11:30am (Asia/Calcutta)\n"
+	u := parseUsage(s)
+	if u.SessionPct != 8 {
+		t.Errorf("session = %d, want 8", u.SessionPct)
+	}
+	if u.WeekPct != 4 {
+		t.Errorf("week = %d, want 4", u.WeekPct)
+	}
+	if !strings.Contains(u.SessionResets, "7:09pm") {
+		t.Errorf("session resets = %q", u.SessionResets)
+	}
+	if !strings.Contains(u.WeekResets, "11:29am") {
+		t.Errorf("week resets = %q", u.WeekResets)
+	}
+}
 
 func TestDominantModelByCost(t *testing.T) {
 	// A cheap side-call (haiku) has MORE output tokens but LESS cost than the main

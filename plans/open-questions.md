@@ -249,9 +249,16 @@ provider-specific limit awareness:
 - Detection is **provider-specific**: parse each backend's error/usage signal to tell
   "limit reached" from a transient error, and back off vs. stop accordingly.
 
-v0 today: a simple **circuit breaker** stops after 3 consecutive failures (so a hit
-limit doesn't spin). A real `--until-limit` mode + weekly-boundary guard + per-provider
-limit detection is **deferred**.
+**Shipped (Claude Code):** `claude -p "/usage"` reports both windows — session (5h) and weekly
+(all-models) % used, with reset times. The runner exposes this as **`potluck usage`** and as
+**`--max-week N` / `--max-session N`** stops: it checks before each task and ends the run cleanly
+when the cap is hit — exactly the "use up to my limit, but don't touch next week's" guard (set
+`--max-week` below 100). The 3-consecutive-failure circuit breaker remains as a backstop.
+
+**Still open:** **Codex** has no CLI plan-usage command (only per-turn token counts), so
+`--max-week`/`--max-session` are Claude-Code-only (ignored + warned for Codex). API-key users
+want a $-budget cap instead (`--max-budget-usd` is available per-run via Claude Code). A unified
+per-provider usage abstraction is the remaining work.
 
 ## 18. Binary provenance / install integrity — **[deferred]**
 

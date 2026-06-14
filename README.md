@@ -110,27 +110,38 @@ potluck/
 └── LICENSE                 # MIT
 ```
 
+## Install
+
+**From a release (recommended).** Download the binary for your OS/arch from the
+[Releases](https://github.com/tannakartikey/potluck/releases) page and **verify its checksum**
+against the published `SHA256SUMS` before running it:
+
+```bash
+# macOS arm64 example
+curl -LO https://github.com/tannakartikey/potluck/releases/latest/download/potluck-darwin-arm64
+curl -LO https://github.com/tannakartikey/potluck/releases/latest/download/SHA256SUMS
+shasum -a 256 --ignore-missing -c SHA256SUMS      # verify BEFORE you run it
+chmod +x potluck-darwin-arm64 && sudo mv potluck-darwin-arm64 /usr/local/bin/potluck
+```
+
+Releases are **pinned and checksummed** — no silent auto-update; you choose when to upgrade and can
+verify exactly what you run ([why](plans/open-questions.md)).
+
+**From source.** `make build` → `bin/potluck`, or `cd client && go build ./cmd/potluck`. It's a single
+static, stdlib-only Go binary.
+
 ## Quickstart
 
-> The runner isn't built yet — this is the *intended* contributor experience,
-> tracked in [`plans/mvp.md`](plans/mvp.md).
-
 ```bash
-# (future) install, then register — generates a local secret key (no GitHub/OAuth login).
-# Your provider credentials stay on your machine; Potluck only stores a SHA-256 of your key.
-potluck register
-
-# bring your spare credits to whatever you care about
-potluck run --topics rails-news,ml-papers --budget 8000 --model claude-haiku-4-5
-
-# browse / submit tasks at the live board (static site in web/)
+potluck register --name "your-handle"                    # one-time: makes a local secret key (no OAuth)
+docker build -t potluck-runner:latest docker/            # build the sandbox image once
+potluck run --backend codex --container --max-tasks 3    # claim → run in a locked-down container → publish
+potluck run --watch --max-week 90                        # donate until 90% of your weekly limit, then stop
+potluck search "postgres"                                # full-text search the open board
 ```
 
-To preview the board today:
-
-```bash
-cd web && python3 -m http.server 8000   # then open http://localhost:8000
-```
+Your provider credentials stay on your machine; Potluck only ever stores a SHA-256 of your key.
+Preview the live board locally: `cd web && python3 -m http.server 8000`.
 
 ## Documentation
 

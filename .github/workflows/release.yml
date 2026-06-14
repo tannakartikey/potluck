@@ -1,0 +1,31 @@
+name: release
+
+# Tag a version (e.g. `git tag v0.1.0 && git push --tags`) to build cross-platform
+# binaries + SHA256SUMS and publish them as a GitHub Release. v0 ships PINNED,
+# checksummed releases (verifiable) rather than silent auto-update — see open-questions #18/#28.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history so `git describe` stamps the version
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: false            # stdlib-only module, nothing to cache
+      - name: Build all platforms
+        run: make build-all VERSION="${GITHUB_REF_NAME}"
+      - name: Generate checksums
+        run: make checksums
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --generate-notes --title "Potluck ${GITHUB_REF_NAME}"

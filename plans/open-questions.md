@@ -307,7 +307,16 @@ when the cap is hit — exactly the "use up to my limit, but don't touch next we
 want a $-budget cap instead (`--max-budget-usd` is available per-run via Claude Code). A unified
 per-provider usage abstraction is the remaining work.
 
-## 18. Binary provenance / install integrity — **[deferred]**
+## 18. Binary provenance / install integrity — **[v0: checksummed pinned releases; signing + auto-update deferred]**
+
+**Shipped:** a `Makefile` + `.github/workflows/release.yml` that, on a `vX.Y.Z` tag, cross-compile
+the static stdlib-only binary for darwin/linux/windows × amd64/arm64, generate a **`SHA256SUMS`**
+file, and publish them as a GitHub Release. Install = download the binary + **verify the checksum**
+before running, or build from source (`make build` / `go build`). **Decision (per #28): v0 ships
+PINNED, checksummed releases — NOT silent bleeding-edge auto-update** (reverses the earlier #13
+auto-update lean): the contributor chooses when to upgrade and can verify exactly what they run.
+**Still deferred:** release signing (cosign/minisign) + a `-trimpath`/reproducible-build attestation,
+and an *opt-in* `potluck upgrade` that verifies the checksum/signature before swapping the binary.
 
 How a contributor trusts the runner binary matches the public source:
 

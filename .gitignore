@@ -40,5 +40,7 @@ Thumbs.db
 # ── Go build artifacts ─────────────────────────────────────────────────
 /client/potluck
 client/cmd/potluck/potluck
+/bin/
+/dist/
 *.test
 *.out

@@ -1,0 +1,189 @@
+// Command potluck is the contributor runner: register an identity, then claim →
+// run (on your own model, in safe mode) → submit, with an honest token/cost summary.
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/tannakartikey/potluck/client/internal/api"
+	"github.com/tannakartikey/potluck/client/internal/backend"
+	"github.com/tannakartikey/potluck/client/internal/config"
+	"github.com/tannakartikey/potluck/client/internal/runner"
+)
+
+var version = "v0.0.1-dev"
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+	switch os.Args[1] {
+	case "register":
+		cmdRegister(os.Args[2:])
+	case "run":
+		cmdRun(os.Args[2:])
+	case "status":
+		cmdStatus(os.Args[2:])
+	case "version", "-v", "--version":
+		fmt.Println("potluck", version)
+	case "help", "-h", "--help":
+		usage()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
+		usage()
+		os.Exit(2)
+	}
+}
+
+func usage() {
+	fmt.Print(`potluck — donate spare AI agent credits to open, public tasks
+
+usage:
+  potluck register [--name <handle>]   create your contributor key (one time)
+  potluck run [flags]                  claim → run → submit, until --max-tasks or Ctrl-C
+  potluck status                       show your identity + what you've donated
+  potluck version
+
+run flags:
+  --topics a,b      only claim these categories (default: all)
+  --budget N        skip tasks needing more than N tokens (default: config / 8000)
+  --model M         model: alias (haiku|sonnet|opus) or full id (default: config)
+  --max-tasks N     stop after N tasks (default: 0 = until queue empty / Ctrl-C)
+
+spec & docs: https://github.com/tannakartikey/potluck/blob/main/AGENTS.md
+`)
+}
+
+func cmdRegister(args []string) {
+	fs := flag.NewFlagSet("register", flag.ExitOnError)
+	name := fs.String("name", "", "display name / handle")
+	_ = fs.Parse(args)
+
+	ctx := context.Background()
+	cl := api.New()
+	if config.HasKey() {
+		fmt.Println("note: a key already exists at", config.Dir()+"/credentials — re-registering creates a NEW identity.")
+	}
+	key, err := config.GenerateKey()
+	check(err)
+	c, err := cl.Register(ctx, key, *name)
+	check(err)
+	check(config.SaveKey(key))
+
+	cfg, _ := config.Load()
+	cfg.DisplayName = *name
+	cfg.ContributorID = c.ID
+	check(cfg.Save())
+
+	fmt.Println("✅ registered. Secret key saved to", config.Dir()+"/credentials (mode 600) — keep it private.")
+	fmt.Println("   contributor id:", c.ID)
+	fmt.Println("   next: potluck run --topics rails,postgres --max-tasks 3")
+}
+
+func cmdRun(args []string) {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	topics := fs.String("topics", "", "comma-separated categories")
+	budget := fs.Int("budget", 0, "skip tasks needing more than N tokens")
+	model := fs.String("model", "", "model alias or id")
+	maxTasks := fs.Int("max-tasks", 0, "stop after N tasks (0 = until empty / Ctrl-C)")
+	_ = fs.Parse(args)
+
+	if !config.HasKey() {
+		fmt.Fprintln(os.Stderr, "no key found — run 'potluck register' first.")
+		os.Exit(1)
+	}
+	key, err := config.LoadKey()
+	check(err)
+	cfg, err := config.Load()
+	check(err)
+
+	var be backend.Backend
+	switch cfg.Backend {
+	case "", "claude-code":
+		be = backend.NewClaudeCode()
+	default:
+		fmt.Fprintf(os.Stderr, "unknown backend %q (v0 supports: claude-code)\n", cfg.Backend)
+		os.Exit(1)
+	}
+
+	opts := runner.Options{
+		Topics:       splitCSV(*topics),
+		BudgetTokens: pickInt(*budget, cfg.BudgetTokens),
+		Model:        pickStr(*model, cfg.Model),
+		MaxTasks:     *maxTasks,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := runner.Run(ctx, api.New(), be, key, opts); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+func cmdStatus(args []string) {
+	cl := api.New()
+	cfg, err := config.Load()
+	check(err)
+	fmt.Println("backend:", orDefault(cfg.Backend, "claude-code"))
+	fmt.Println("model:  ", orDefault(cfg.Model, "haiku"))
+	if !config.HasKey() || cfg.ContributorID == "" {
+		fmt.Println("not registered yet — run 'potluck register'.")
+		return
+	}
+	fmt.Println("contributor:", cfg.ContributorID, "("+orDefault(cfg.DisplayName, "anonymous")+")")
+	count, tokens, err := cl.DonatedStats(context.Background(), cfg.ContributorID)
+	if err != nil {
+		fmt.Println("(could not load donation stats:", err, ")")
+		return
+	}
+	fmt.Printf("donated: %d artifact(s), %d tokens\n", count, tokens)
+}
+
+func check(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+func splitCSV(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func pickInt(v, d int) int {
+	if v != 0 {
+		return v
+	}
+	return d
+}
+
+func pickStr(v, d string) string {
+	if v != "" {
+		return v
+	}
+	return d
+}
+
+func orDefault(v, d string) string {
+	if v != "" {
+		return v
+	}
+	return d
+}

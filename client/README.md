@@ -1,23 +1,75 @@
-# client/ — the Potluck runner
+# client/ — the Potluck runner (Go)
 
-This is where the contributor runner lands. It is **spec-first**: the behavior is
-fully described in [`../docs/client-spec.md`](../docs/client-spec.md); the code is
-the first deliverable of the [MVP](../plans/mvp.md).
+A single static Go binary that donates your spare AI agent credits to open, public
+tasks: **register once, then claim → run (on your own model, in safe mode) → submit**,
+with an honest token/cost summary at the end.
 
-## Plan
+## Install
 
-1. **v0 — Claude Code skill / tiny script.** The lowest-friction on-ramp:
-   `claim_subtask` → run one no-tools completion on the contributor's own Claude →
-   output guard → `submit_result`. Proves the loop end to end.
-2. **v1 — standalone CLI** (`potluck`) with pluggable backends (API SDK as the
-   default, Claude Code / Codex CLIs, any OpenAI-compatible endpoint), local budget
-   enforcement, and config in `~/.potluck/config.toml`.
+From source (recommended — compiles on your machine, straight from this repo; Go's
+module checksum DB makes tampering detectable, so there's no prebuilt binary to trust):
 
-## Non-negotiables (carried from the threat model)
+```sh
+go install github.com/tannakartikey/potluck/client/cmd/potluck@latest
+```
 
-- Uses the contributor's **own** account/key; never transmits a credential.
-- **Safe mode**: no tools, single turn, untrusted prompt as data, hard local
-  budget, pre-publish output guard.
-- On failure/over-budget: **discard** partial work and release the lease.
+Or build locally:
 
-Nothing here is built yet. Start with [`../plans/mvp.md`](../plans/mvp.md).
+```sh
+cd client && go build -o potluck ./cmd/potluck
+```
+
+The v0 backend shells out to the **Claude Code CLI** — make sure `claude` is on your PATH.
+
+## Use
+
+```sh
+potluck register --name <your-handle>                  # one time → creates your secret key
+potluck run --topics rails,postgres --max-tasks 5 --model haiku
+potluck status                                         # what you've donated
+```
+
+Run flags: `--topics a,b`, `--budget N` (skip tasks needing more than N tokens),
+`--model` (`haiku|sonnet|opus` or a full id), `--max-tasks N` (0 = until the queue is
+empty or Ctrl-C).
+
+## How it runs a task (safe mode)
+
+For each task the Claude Code backend calls, roughly:
+
+```sh
+claude -p "<task text, as DATA>" --output-format json \
+  --allowed-tools "" \
+  --system-prompt "<fixed safety preamble>" \
+  --model <m>
+```
+
+That means **no tools** (no shell, file, or web access), a project-controlled system
+prompt that replaces the agent default, and execution in a clean temp dir — so a
+community-authored task **cannot touch your machine**. The runner parses exact token
+usage + cost from the JSON, runs a secret-scanning output guard, then submits through
+the key-gated RPC. On failure it discards partial work and re-queues the task; after 3
+consecutive failures it stops (likely rate-limited / out of budget).
+
+## Config & state (local — never uploaded)
+
+`~/.potluck/config.json` (topics, model, budget, backend) and `~/.potluck/credentials`
+(your secret key, mode `600`). Override the directory with `POTLUCK_HOME`; override the
+backend with `POTLUCK_SUPABASE_URL` / `POTLUCK_ANON_KEY` (the bundled anon key is public
+and read-only by design).
+
+## Tests
+
+```sh
+cd client && go test ./...
+```
+
+## Known v0 limitations (tracked in [../plans/open-questions.md](../plans/open-questions.md))
+
+- Backend is **Claude Code only**; Codex / raw API / custom-command land behind the same
+  adapter interface later (#2).
+- Safe mode is best-effort; the future custom-command backend can't enforce no-tools.
+- No usage-limit awareness yet (Claude's 5-hour vs weekly windows) — the 3-failure
+  circuit breaker is the interim guard (#17).
+- Bleeding-edge / install-from-source; signed releases + an auto-updater come later
+  (#13, #18).

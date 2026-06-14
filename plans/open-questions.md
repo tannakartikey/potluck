@@ -233,3 +233,39 @@ Same pattern as text results: store only `{bucket, key, content_type, sha256, si
 permalink}` in the DB; the binary lives in a public-read bucket. Out of v0 — lands
 with the first non-text task type (see also v1 scope: image **inputs** are allowed
 today as linked URLs in `subtasks.attachments`).
+
+## 17. Usage-limit-aware execution (run-until-limit) — **[deferred]**
+
+A contributor may want to **run until their plan limit is reached** ("I've got 50%
+left and a day off — spend it on the commons"). Doing that safely needs
+provider-specific limit awareness:
+
+- **Claude (subscription)** has **two windows**: a rolling **5-hour** limit and a
+  **weekly** limit. The runner must (a) **stop gracefully** when a limit is hit —
+  detect the usage-limit signal rather than hammering — and (b) **never start eating
+  into the *next* week's** allowance (respect the weekly boundary, not just the 5h one).
+- **API-key** users have **spend/rate** limits instead — a `--max-budget-usd` cap is
+  the natural control (already supported per-run by Claude Code).
+- Detection is **provider-specific**: parse each backend's error/usage signal to tell
+  "limit reached" from a transient error, and back off vs. stop accordingly.
+
+v0 today: a simple **circuit breaker** stops after 3 consecutive failures (so a hit
+limit doesn't spin). A real `--until-limit` mode + weekly-boundary guard + per-provider
+limit detection is **deferred**.
+
+## 18. Binary provenance / install integrity — **[deferred]**
+
+How a contributor trusts the runner binary matches the public source:
+
+- **Install from source** (simplest, recommended): `go install
+  github.com/tannakartikey/potluck/client/cmd/potluck@latest` compiles on the
+  contributor's own machine straight from this repo, and Go's module checksum
+  database (`sum.golang.org`) makes tampering detectable — there's no prebuilt binary
+  to trust.
+- **Prebuilt release binaries** (for non-Go users): publish a `SHA256SUMS` file and,
+  ideally, a signature (cosign / minisign) with each GitHub Release; the installer
+  verifies before running. Reproducible builds let anyone re-derive the hash.
+
+Ties into #13 (bleeding-edge updates): when we add an updater, it verifies the
+checksum/signature before swapping the binary. Deferred — `go install` from source
+covers v0.

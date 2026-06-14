@@ -33,3 +33,9 @@ Thumbs.db
 .vscode/
 *.swp
 *~
+
+# ── Go build artifacts ─────────────────────────────────────────────────
+/client/potluck
+client/cmd/potluck/potluck
+*.test
+*.out

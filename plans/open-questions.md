@@ -42,13 +42,23 @@ Data API is the documented fallback; the schema is in
 PostgREST shape so a move is a base-URL + policy change. (Railway: no free tier.
 Turso: no native RLS. Firebase: non-SQL/proprietary, conflicts with open-source.)
 
-## 5. Artifact storage — **[locked: public Git repo is canonical]**
+## 5. Artifact storage — **[locked: the DATABASE is canonical (v0, text-only)]**
 
-Markdown, one file per result, in a public repo. The DB stores only pointers
-(`repo_path`, `commit_sha`, `permalink`). Git gives diffs, free hosting, trivial
-forking, durable attribution, and — crucially — the commons survives the project's
-death. The DB keeps `artifact_md` only transiently until the publisher Action
-mirrors it. Discipline required: **batch** commits (built into the Action).
+Everything lives in **one place: the Postgres DB.** The task is a `subtasks` row; the
+result — including the **full markdown body** — is `results.artifact_md`. No git mirror, no
+publisher Action, no second source of truth. v0 is text-only, so the bytes are small and the
+DB is the simplest correct home (one store, one backup, one thing to reason about).
+
+*(Reversed from the earlier "git repo is canonical" plan, at the owner's call: keep it simple,
+all-in-DB, while we're text-only.)* The reserved `results.repo_path` / `commit_sha` /
+`permalink` columns stay **reserved** for an **optional, future** export/backup mirror — e.g.
+batch-committing accepted artifacts to a public git repo for durability + forking so the
+commons could outlive the DB. That's a **nice-to-have, not the plan**; pursue only if/when
+durability-beyond-the-DB is actually wanted.
+
+When **outputs stop being text** (generated images, audio, video, PDF, Word, slides…), the
+files won't go in the DB — they go in **object storage** (Supabase Storage; see #16), with the
+DB holding only a pointer. Out of v0.
 
 ## 6. Verification depth in v1 — **[locked: provenance-only, single-source]**
 
@@ -246,10 +256,10 @@ need appears (both non-breaking, like the other reserved hooks).
 
 ## 16. Binary / large-artifact storage (non-text tasks) — **[deferred]**
 
-v0 is text-out, so artifacts are markdown in Git — no object storage needed. But
-tasks whose **output** is binary (a generated image / PDF / audio / video) or whose
-**input** is a large binary (a PDF or image to host rather than link) will need
-**S3-like object storage**: the DB/Git keeps a pointer, the bytes live in a bucket.
+v0 is text-out, so the full markdown lives in the DB (`results.artifact_md`, see #5) — no
+object storage needed. But tasks whose **output** is binary (a generated image / PDF / audio /
+video / doc / slides) or whose **input** is a large binary (a PDF or image to host rather than
+link) will need **S3-like object storage**: the DB keeps a pointer, the bytes live in a bucket.
 
 Options, cheapest-fit first:
 - **Supabase Storage** — already in our stack, S3-compatible, included on the free

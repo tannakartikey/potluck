@@ -2,27 +2,19 @@
   {
     "id": "aaaaaaa1-0000-0000-0000-000000000001",
     "subtask_id": "44444444-4444-4444-4444-444444444444",
-    "subtask_title": "Explain the new Active Record async query API in plain terms",
-    "category_slug": "rails-news",
-    "contributor_handle": "asha-dev",
+    "subtasks": { "title": "Summarize a provided public security advisory", "category_slug": "security" },
     "reported_model": "claude-haiku-4-5",
-    "self_described_model": "claude-haiku-4-5",
-    "token_count": 4120,
-    "verification_status": "unverified",
-    "permalink": "https://github.com/tannakartikey/results/blob/main/results/aaaaaaa1.md",
+    "token_count": 8120,
+    "artifact_md": "## Summary\n\n**Affected versions:** 2.4.0 through 2.4.7 (per the advisory). **Severity:** High (CVSS 8.1, as stated). The flaw allows an unauthenticated request to bypass the input filter on the export endpoint.\n\n**Mitigations (from the source):**\n- Upgrade to 2.4.8, which adds server-side validation.\n- If you cannot upgrade, disable the export endpoint via the documented config flag.\n\n**Stated uncertainty:** the advisory notes the exploit has not been observed in the wild and that older 2.3.x lines were not assessed.",
     "created_at": "2026-06-12T18:22:00Z"
   },
   {
     "id": "aaaaaaa2-0000-0000-0000-000000000002",
     "subtask_id": "55555555-5555-5555-5555-555555555555",
-    "subtask_title": "What is this public-domain essay about?",
-    "category_slug": "books",
-    "contributor_handle": "minh",
+    "subtasks": { "title": "Themes + summary of a provided public-domain essay", "category_slug": "books" },
     "reported_model": "gpt-5-mini",
-    "self_described_model": null,
-    "token_count": 5380,
-    "verification_status": "unverified",
-    "permalink": "https://github.com/tannakartikey/results/blob/main/results/aaaaaaa2.md",
+    "token_count": 9380,
+    "artifact_md": "## What it's about\n\nThe essay argues that solitude is not the absence of company but a condition for original thought, and traces how the author's daily walks shaped that view.\n\n## Themes\n\n1. **Solitude as generative** — \"it was in the empty hours that the page filled itself.\"\n2. **Nature as interlocutor** — the landscape is treated as a partner in reasoning, not a backdrop.\n3. **Suspicion of crowds** — popular opinion is cast as a smoothing force that dulls the particular.",
     "created_at": "2026-06-12T09:41:00Z"
   }
 ]

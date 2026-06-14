@@ -84,6 +84,11 @@ body {
 h1, h2, h3 { line-height: 1.13; letter-spacing: -.02em; margin: 0; }
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
+/* In-prose links carry an underline (don't rely on color alone — a11y). */
+.lede a, .kicker a, .steps p a, .section-sub a, .mini-card p a, .fit-col a,
+.spec-note a, .board-empty a, .gallery-empty a, .footer-disclaimer a, .trust-card p a {
+  text-decoration: underline; text-underline-offset: 2px;
+}
 code { font-family: var(--mono); font-size: .88em; background: var(--code-bg); padding: .12em .4em; border-radius: 6px; }
 .muted { color: var(--muted); }
 .tiny { font-size: .82rem; }
@@ -105,7 +110,9 @@ em { font-style: normal; color: var(--primary); }
 .nav-links a { color: var(--muted); font-size: .95rem; font-weight: 500; }
 .nav-links a:hover { color: var(--ink); text-decoration: none; }
 .nav-gh { color: var(--ink) !important; font-weight: 600 !important; }
-@media (max-width: 720px) { .nav-links a:not(.nav-gh) { display: none; } }
+/* On mobile keep the two key jumps (Board, Get started) + GitHub; hide the rest. */
+@media (max-width: 720px) { .nav-links a:not(.nav-gh):not(.nav-keep) { display: none; } }
+@media (max-width: 380px) { .nav-links { gap: .7rem; } .nav-links a { font-size: .88rem; } }
 
 /* ───────── hero (the single focal band — always dark, warm) ───────── */
 .hero {
@@ -260,6 +267,14 @@ em { font-style: normal; color: var(--primary); }
 .fit-col ul { margin: 0; padding-left: 1.15rem; color: var(--muted); font-size: .94rem; }
 .fit-col li { margin-bottom: .55rem; }
 .fit-col li:last-child { margin-bottom: 0; }
+
+/* ───────── spec-not-UI note ───────── */
+.spec-note { display: flex; gap: 1.3rem; align-items: flex-start; background: var(--paper-2);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 1.8rem 2rem; box-shadow: var(--shadow); }
+.spec-emoji { font-size: 1.9rem; line-height: 1.1; flex: 0 0 auto; }
+.spec-note h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(1.3rem, 3vw, 1.85rem); margin-bottom: .5rem; }
+.spec-note p { color: var(--muted); margin: 0; max-width: 72ch; font-size: 1rem; }
+@media (max-width: 560px) { .spec-note { flex-direction: column; gap: .8rem; padding: 1.5rem 1.4rem; } }
 
 /* ───────── trust (calm tinted band, themed) ───────── */
 .trust { background: var(--paper-2); max-width: none; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }

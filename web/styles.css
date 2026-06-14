@@ -113,7 +113,7 @@ code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); p
 @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } html { scroll-behavior: auto; } }
 
 /* ── how / steps ── */
-.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(1.5rem, 4vw, 3rem); }
+.steps { list-style: none; margin: clamp(2.2rem, 4vw, 3.2rem) 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(1.5rem, 4vw, 3rem); }
 .steps li { position: relative; }
 .step-n { font-family: var(--display); font-weight: 600; font-size: 1.5rem; color: #fff; background: var(--accent);
   width: 44px; height: 44px; border-radius: 12px; display: inline-grid; place-items: center; margin-bottom: 1.1rem; }

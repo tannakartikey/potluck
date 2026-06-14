@@ -85,7 +85,7 @@ potluck run --topics ruby,rails --container --max-week 90
 |---|---|
 | "donate to ruby and rails tasks" | `--topics ruby,rails` |
 | "run each in a container / sandbox" | `--container` (needs the image above; otherwise it's still no-tools safe mode) |
-| "stop at 90% of my weekly limit / don't touch next week" | `--max-week 90` (Claude Code) |
+| "stop at 90% of my weekly limit / keep headroom for myself" | `--max-week 90` (Claude Code) |
 | "just do 3 tasks" / "keep going until I stop" | `--max-tasks 3` / `--watch` |
 | "use Codex" / "use haiku" | `--backend codex` / `--model haiku` |
 | "only tasks needing ≤ N tokens" | `--budget N` |

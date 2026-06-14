@@ -498,3 +498,44 @@ cost-per-item is low — exactly the donated-credits sweet spot.
 **not** on the v0 critical path. It requires **zero** new schema today — it's a task *source*
 (an ingestion adapter) plus the already-deferred container gate for the deeper, tool-using variants.
 Revisit after v0 launch + the submission/moderation loop and the container gate have shipped.
+
+## 26. Configurable donation policy — usage-cycle-aware, model-aware scheduling — **[parked: v1, but early]**
+
+**Idea (parked at the user's request — likely v1, deliberately NOT v0):** let a contributor
+declare *how* they want their spare credits donated, instead of only running `potluck run`
+manually. Examples the user gave:
+- **"Burn whatever's left before my limit resets."** Each provider account has its **own** usage
+  cycle (not a shared "weekend") — so the policy must read *that account's* reset time, not a
+  wall-clock calendar.
+- **"If I've used only ~50% and I'm <24h from reset, start donating the rest"** (don't let credits
+  expire unused).
+- **Time/model windows:** "I never use Sonnet, so overnight while I sleep, donate with Sonnet" —
+  i.e. per-time-window model selection (cheaper/unused models when the user is idle).
+
+We already have the raw material: `potluck usage` parses Claude Code's `/usage` (session 5h % +
+weekly %, with reset times) and `potluck run --max-week/--max-session` already stops at a % ceiling.
+This feature generalizes that into a **declarative policy** (config + a long-running/scheduled mode)
+rather than one-shot flags.
+
+**The user's hard caveats (these are the actual risk, not the scheduling):**
+- **Usage accounting must be exact and trustworthy.** People are donating real, paid quota — if we
+  miscompute "remaining," we could eat into the quota they need. Confidence here is what makes the
+  feature *safe to enable*, so it must be conservative (fail toward NOT spending) and well-tested.
+- **Provider usage semantics drift.** Anthropic/OpenAI change limits, windows, and the shape of
+  their usage reporting; Codex exposes no usage CLI at all today. So this needs a **provider
+  abstraction** for "current usage + reset time" with per-provider adapters, and a plan to track
+  upstream changes — not hard-coded percentages.
+
+**Why park it but not too late:** the user notes a credible "donate confidently while I sleep" story
+is exactly what gives people the confidence to leave Potluck running — so it's a **trust/adoption**
+feature, not just convenience. Target **v1**, after v0's manual loop + usage reads are proven.
+
+**Open forks for when we build it:**
+- **Mechanism:** a daemon/`--watch`-style long-runner with a policy file, vs. a documented cron +
+  `potluck run --max-week …` recipe (much of this is *already* expressible with the existing flags
+  + the OS scheduler — ship the recipe first, the daemon later).
+- **Policy surface:** how expressive? (simple "% ceiling + reset-aware top-up" vs. full time-window
+  → {model, budget} rules.) Start minimal.
+- **Per-provider usage adapter:** Claude Code via `/usage` (works today); Codex/API have no
+  equivalent yet — degrade gracefully (token-budget caps only) where usage isn't reportable.
+- **Safety default:** always leave a configurable headroom buffer; never spend the last N%.

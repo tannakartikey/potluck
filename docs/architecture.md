@@ -17,50 +17,50 @@ on contributors' own machines under their own accounts.
             │        (no tools, 1 turn, budget)│      (no credential ever leaves here)      │
             │     4. output guard (secrets)   │                                             │
             │     5. submit_result(...)     ──┘                                             │
-            └───────────────┬───────────────────────────────────────────────────▲──────────┘
-                            │ HTTPS (PostgREST + RPC; write RPCs carry p_key)     │
-                            ▼                                                     │
-   ┌───────────────────────────────────── SUPABASE (free tier) ──────────────────┼──────────┐
-   │   Postgres  =  QUEUE + INDEX + PROVENANCE     (RLS on every table)           │          │
-   │     • subtasks (the work queue / public board)                              │          │
-   │     • results  (metadata + provenance; body pointer)                        │          │
-   │     • contributors (identity = self-generated key; hash in contributor_keys)│          │
-   │   Auto REST API (PostgREST)  +  anon role  =  the "thin API" we don't run   │          │
-   └───────────────┬─────────────────────────────────────────────────────────────┼──────────┘
-                   │ anon key (public, RLS-protected) read                        │ batch commit
-                   ▼                                                              │ (1 GH Action)
-   ┌─────────────────────────────┐                          ┌─────────────────────┴──────────┐
-   │  GitHub Pages (static site) │  reads board + feed      │  Public RESULTS Git repo        │
-   │  web/ — no build step       │◄─────────────────────────┤  results/<id>.md  (open, forkable)
-   │  board · submit · feed      │   links to artifacts     │  the permanent commons          │
-   └─────────────────────────────┘                          └─────────────────────────────────┘
+            └───────────────┬──────────────────────────────────────────────────────────────┘
+                            │ HTTPS (PostgREST + RPC; write RPCs carry p_key)
+                            ▼
+   ┌───────────────────────────────────── SUPABASE (free tier) ─────────────────────────────┐
+   │   Postgres  =  QUEUE + INDEX + PROVENANCE + ARTIFACT STORE   (RLS on every table)       │
+   │     • subtasks (the work queue / public board)                                          │
+   │     • results  (metadata + provenance + the full markdown body: artifact_md)            │
+   │     • contributors (identity = self-generated key; hash in contributor_keys)            │
+   │   Auto REST API (PostgREST)  +  anon role  =  the "thin API" we don't run               │
+   └───────────────┬─────────────────────────────────────────────────────────────────────────┘
+                   │ anon key (public, RLS-protected) read — board + results.artifact_md
+                   ▼
+   ┌─────────────────────────────┐
+   │  GitHub Pages (static site) │  reads board + feed + the result markdown
+   │  web/ — no build step       │  straight from results.artifact_md (DB)
+   │  board · submit · feed      │
+   └─────────────────────────────┘
 ```
 
-The only thing the project itself "runs" beyond the managed DB is **one scheduled
-GitHub Action** that batch-commits accepted results into the public repo (never a
-commit per result — that respects GitHub write limits) and pings the DB to keep
-the free tier from pausing.
+The DB is the single source of truth: the canonical artifact store **is**
+`results.artifact_md`, read straight from Postgres by the static board — there is no
+git mirror and no publisher in the v0 loop. The only thing the project itself might
+"run" beyond the managed DB is an **optional lightweight keep-alive ping** (a tiny
+scheduled job hitting the REST API) to keep the free tier from pausing after ~7 days
+idle — not a publisher, and not required to serve results.
 
 ## Components
 
 | Component | Where it runs | Responsibility |
 |---|---|---|
 | **Runner CLI** (`potluck`) | contributor's machine | Claim a lease, wrap the untrusted task as data, run the contributor's own agent in safe mode under a local budget, guard the output, submit the result. The runner — not the task — is the safety/budget enforcement point. |
-| **Postgres (Supabase)** | managed free tier | Queue + index + provenance. RLS is the whole access model. Three tables in v1. |
+| **Postgres (Supabase)** | managed free tier | Queue + index + provenance **+ canonical artifact store**: the full result markdown lives in `results.artifact_md`. RLS is the whole access model. Three tables in v1. |
 | **PostgREST + RLS** | managed (Supabase) | The "thin API" — auto-generated REST + key-gated `SECURITY DEFINER` RPCs. Reads use the public anon role; writes resolve the contributor from the presented secret key. No server we operate. |
-| **Static site** | GitHub Pages | Public board, category pages, the "what your credits built" feed, submit form. Reads PostgREST directly with the public anon key. |
-| **Results repo** | public Git repo | Canonical artifact store: markdown, one file per result. Diffable, forkable, free, outlives the project. |
-| **Publisher Action** | GitHub Actions (scheduled) | Batch-mirror accepted `results.artifact_md` → repo files; write back `repo_path`/`commit_sha`/`permalink`; keep-alive ping. |
+| **Static site** | GitHub Pages | Public board, category pages, the "what your credits built" feed, submit form. Reads PostgREST directly with the public anon key — including each result's markdown straight from `results.artifact_md`. |
 
 ## The task lifecycle
 
 ```
- SUBMIT ──► FAN-OUT ──► OPEN ──► LEASE ──► EXECUTE ──► GUARD ──► SUBMIT ──► PUBLISH
-   │           │          │        │          │          │         │          │
-maintainer  (v1: manual) queue   atomic    safe mode   secret/   result    GH Action
-authors a   big task →   row     RPC,15min  no-tools   policy    + flip    mirrors to
-small task  many small   (board) lease      budget cap scan      to 'done' Git + board
-            atomic ones
+ SUBMIT ──► FAN-OUT ──► OPEN ──► LEASE ──► EXECUTE ──► GUARD ──► SUBMIT
+   │           │          │        │          │          │         │
+maintainer  (v1: manual) queue   atomic    safe mode   secret/   result row +
+authors a   big task →   row     RPC,15min  no-tools   policy    artifact_md +
+small task  many small   (board) lease      budget cap scan      flip to 'done';
+            atomic ones                                          board reads it
 ```
 
 1. **Submit.** In v1, a maintainer hand-writes atomic `subtasks` with crisp,
@@ -79,29 +79,32 @@ small task  many small   (board) lease      budget cap scan      to 'done' Git +
    allowed as task attachments; the agent describes them — output is still text.)
 5. **Guard.** A client-side pre-publish scan checks for secret patterns, local
    paths, and policy violations. Failing the guard blocks publication.
-6. **Submit.** `submit_result(...)` writes the result row (with self-reported
-   provenance) and flips the subtask to `done`, in one transaction, only if the
-   caller holds an active lease.
-7. **Publish.** The scheduled Action mirrors the markdown into the public repo and
-   the site renders it, attributed to the contributor and the model they reported.
+6. **Submit.** `submit_result(...)` writes the result row — including the full
+   markdown body in `results.artifact_md` — with self-reported provenance, and flips
+   the subtask to `done`, in one transaction, only if the caller holds an active lease.
+   That single write is the publish: the static board reads `artifact_md` straight from
+   the DB and renders it, attributed to the contributor and the model they reported.
 
 If a run fails or blows the budget, the runner calls `release_lease()`: v1
 **discards the partial work** and returns the task to the pool for a fresh retry.
 
 ## The single-database / minimal-compute design
 
-Everything that *could* be a server is pushed to one of three places:
+Everything that *could* be a server is pushed to one of two places:
 
-- **Into Postgres + RLS.** Access control, the atomic claim, and result
-  submission are SQL (`SECURITY DEFINER` RPCs). There is no application server to
-  operate, scale, or secure.
+- **Into Postgres + RLS.** Access control, the atomic claim, result submission,
+  and artifact storage are all SQL — the result markdown lives in
+  `results.artifact_md` and the board reads it directly. There is no application
+  server to operate, scale, or secure, and no separate artifact pipeline.
 - **Onto the contributor's machine.** All inference, all budget enforcement, all
   output guarding. The center never spends a token.
-- **Into Git + a scheduled Action.** Durable artifact storage and the only
-  recurring "job" the project runs.
 
 This is what makes Potluck free-tier-viable and hard to capture: there is almost
-nothing in the middle to pay for or take over.
+nothing in the middle to pay for or take over. The known cost of all-in-DB is that
+a Supabase project can pause (~7 days idle) and isn't ownerless the way a git repo
+is; both are addressed by an **optional** future export/backup mirror (a periodic
+`pg_dump` or a batch git/Storage export) rather than by any always-on publisher —
+see [open-questions](../plans/open-questions.md) #5.
 
 ## How the static frontend talks to the DB safely
 
@@ -130,12 +133,14 @@ confirms anon cannot write. See [threat-model](threat-model.md) §6 and
 |---|---|---|
 | Database + API (PostgREST + RPCs) | Supabase free tier | $0 |
 | Website | GitHub Pages | $0 |
-| Artifact store | public GitHub repo | $0 |
-| Publisher / keep-alive | GitHub Actions | $0 (within free minutes) |
+| Artifact store | Supabase Postgres (`results.artifact_md`) | $0 (same DB) |
+| Keep-alive ping (optional) | GitHub Actions (scheduled) | $0 (within free minutes) |
 
 **Portability:** because the schema is modeled in PostgREST shape, moving off
 Supabase (e.g. to Neon + Data API) later is a base-URL + policy change, not a
-rewrite. The artifact commons is plain Git and already portable by construction.
+rewrite — and the artifacts move with the DB since they *are* DB rows. Durability
+beyond a single project (forkable, ownerless storage) is the job of the optional
+future export mirror (open-questions #5), not a present property.
 
 See [`api-spec.md`](api-spec.md) for the concrete endpoints/RPCs and
 [`client-spec.md`](client-spec.md) for the runner.

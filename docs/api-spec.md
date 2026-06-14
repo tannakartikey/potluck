@@ -46,7 +46,7 @@ If you are evaluating whether to contribute: the loop you implement against this
 - **The anon key is public.** It ships in the static site's JS and in the CLI. It is safe *only because RLS is on for every table*. See [§5](#5-rls-policies) and [§6](#6-the-anon-role-gate-mandatory-pre-launch-test).
 - **Shapes.** Request/response bodies are exactly what PostgREST returns: JSON arrays of row objects for table reads, a single object (or array) for RPCs. Examples below are illustrative — column names are authoritative, surrounding HTTP framing is PostgREST-standard.
 - **Filtering / ordering / paging** use PostgREST query operators (`eq`, `in`, `order`, `limit`, `offset`, `select`). You do not need a client library; these are plain query strings.
-- **All artifact bodies live in Git.** The DB stores only metadata + a pointer (`repo_path`, later `commit_sha`/`permalink`). Do not treat the DB as the artifact store.
+- **The database is the canonical artifact store.** The full result markdown body is `results.artifact_md`, kept in the DB and read straight from it by the board. The reserved `repo_path` / `commit_sha` / `permalink` columns are unused in v0 — held for an optional future export/backup mirror, never the canonical store.
 - **Mock-first.** During the mock-JSON phase, the same shapes are served as static JSON so a switch to live Supabase is a base-URL + policy change, not a rewrite.
 
 ---
@@ -82,18 +82,18 @@ Potluck has exactly one contributor-identity mechanism in v1: **a self-generated
 Three public tables in v1, plus a secrets-only `contributor_keys` table (`contributor_id`, `key_hash` unique, `created_at`) that has RLS on with no policy/grant — unreachable except via the RPCs. RLS ON for every table from creation. `RESERVED` columns exist now (nullable / default-unused) so v2 machinery bolts on as new code over existing columns — never a table reshape.
 
 ```
-contributors                subtasks  (THE QUEUE + INDEX)        results  (METADATA + POINTER)
+contributors                subtasks  (THE QUEUE + INDEX)        results  (METADATA + ARTIFACT BODY)
 ────────────                ──────────────────────────────      ──────────────────────────────
 id (gen_random_uuid)        id                                  id
 display_name (self-chosen)  category_slug                       subtask_id  ─▶ subtasks.id
 created_at                  title                               contributor_id ─▶ contributors.id
-                            prompt        (untrusted DATA)       artifact_md  (mirrored to Git)
+                            prompt        (untrusted DATA)       artifact_md  (the full markdown body)
                             acceptance                           model_id
 trust_level  (ACTIVE)       token_budget  (advisory)             token_count
   0 untrusted (default)     status   open|pending|leased|done|... prompt_hash
   >=1 trusted moderator     leased_by  ─▶ contributors.id        output_guard_passed
   >=2 admin (grants trust)  lease_expires_at                     created_at
-                            submitted_by  ─▶ contributors.id     repo_path
+                            submitted_by  ─▶ contributors.id     repo_path  (RESERVED, unused)
 RESERVED v2:                moderated_by  ─▶ contributors.id     RESERVED v2:
   reputation                created_at                             verification_status
   validated_streak          RESERVED v2:                           structured_output
@@ -316,7 +316,7 @@ Content-Type: application/json
 }
 ```
 
-**Response `200`:** the inserted result row. The publisher GitHub Action later batch-commits `artifact_md` to the public repo and back-fills `repo_path` (and reserved `commit_sha`/`permalink`).
+**Response `200`:** the inserted result row. The full markdown body is stored as `results.artifact_md` in the DB and is read directly by the board — there is no publisher and no git mirror. The reserved `repo_path` / `commit_sha` / `permalink` columns stay unused (held for an optional future export/backup mirror).
 
 Marking the subtask `done` is **not** a separate client call: `submit_result` performs that privileged state transition atomically after writing the row. The client never issues a broad `UPDATE subtasks SET status='done'`.
 
@@ -485,7 +485,7 @@ Anyone can read accepted results — this is the open commons. Public; no JWT.
 **Request — recent artifacts for the live feed:**
 
 ```
-GET /results?select=id,subtask_id,contributor_id,model_id,token_count,created_at,repo_path,verification_status&order=created_at.desc&limit=50
+GET /results?select=id,subtask_id,contributor_id,model_id,token_count,created_at,artifact_md,verification_status&order=created_at.desc&limit=50
 apikey: <ANON_KEY>
 ```
 
@@ -500,13 +500,13 @@ apikey: <ANON_KEY>
     "model_id": "claude-haiku-4-5",
     "token_count": 4200,
     "created_at": "2026-06-14T09:10:00Z",
-    "repo_path": "results/8f3a....md",
+    "artifact_md": "## Summary\n\n...the full markdown body, served straight from the DB...",
     "verification_status": "unverified"
   }
 ]
 ```
 
-For the full artifact text, read `artifact_md` (also selectable) or follow `repo_path` into the public Git repo / GitHub Pages permalink. Every artifact is rendered with an explicit AI-generated provenance label.
+For the full artifact text, read `artifact_md` (also selectable) straight from the DB — that column holds the canonical markdown body. The reserved `repo_path` / `permalink` columns are unused in v0. Every artifact is rendered with an explicit AI-generated provenance label.
 
 ---
 

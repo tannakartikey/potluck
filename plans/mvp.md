@@ -53,10 +53,14 @@ If that one loop works and feels good, everything else is incremental.
       shape, so it's a config change.
 - [ ] Per-category view + a contributor attribution line per artifact.
 
-### E. Publisher (can be faked first) — *~half a day*
-- [ ] v0: the board reads `artifact_md` straight from the DB (skip Git mirroring).
-- [ ] v1: one scheduled GitHub Action batch-commits accepted results to the public
-      results repo and writes back `repo_path`/`permalink`.
+### E. (Optional) Export / keep-alive — *not v1; build only if wanted*
+- [ ] v0 needs nothing here: the board reads `artifact_md` **straight from the DB**,
+      which is the canonical and only artifact store (decision #5). Done by design.
+- [ ] Optional future: a scheduled keep-alive ping (a tiny cron hitting the REST API) to
+      dodge the free tier's ~7-day idle pause, plus periodic DB backups/exports — and, if
+      durability-beyond-the-DB is ever wanted, an **optional** export mirror that batch-commits
+      accepted results to a public git repo and writes back the reserved
+      `repo_path`/`commit_sha`/`permalink`. A nice-to-have, never the canonical store.
 
 ## Explicitly NOT in the MVP
 
@@ -67,8 +71,10 @@ coding tasks. All tracked in [roadmap](roadmap.md). The MVP is the *loop*, prove
 ## Sequencing
 
 ```
-A (db + anon gate) ──► B (seed tasks) ──► C (runner skill) ──► D (board) ──► E (publisher)
+A (db + anon gate) ──► B (seed tasks) ──► C (runner skill) ──► D (board, reads DB)
         the gate in A is blocking: do not demo until anon-write is confirmed dead.
+        D closes the loop: the board reads results.artifact_md straight from the DB.
+        (E — optional keep-alive/export — is not part of the v0 loop.)
 ```
 
 First milestone to celebrate: the first artifact on the board that a friend's

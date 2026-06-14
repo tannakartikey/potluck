@@ -172,8 +172,8 @@ Each threat below lists **impact**, **who bears it**, **v1 mitigation**, and an 
 
 ```
   PRIVACY    A leak (§4.1) or a careless task could place personal/local
-             information into a permanent, public, forkable git artifact.
-             Git history makes deletion hard.
+             information into a permanent, public artifact (results.artifact_md
+             in the DB, shown on the board). Once published, deletion is hard.
   COPYRIGHT  Tasks like "summarize this book" produce derived text; publishing
              third-party-derived summaries into an open pool can raise
              copyright questions on its own.
@@ -189,7 +189,7 @@ Each threat below lists **impact**, **who bears it**, **v1 mitigation**, and an 
 - **Provenance + AI-origin label** on every artifact, satisfying disclosure expectations for publicly-published automated content.
 - **Pool-use clause** barring use of harvested outputs to train competing frontier models, to stay clear of both providers' anti-competing-model restrictions while permitting normal open reuse.
 
-**Residual (honest).** Output scanning is heuristic; a novel secret or an embedded PII string can slip through into permanent git history. Neither provider warrants outputs are non-infringing, and standard tiers carry limited indemnity. Scoping + attestation reduce but do not eliminate copyright exposure on derived text.
+**Residual (honest).** Output scanning is heuristic; a novel secret or an embedded PII string can slip through into the permanent, publicly-readable artifact (`results.artifact_md` in the DB, served on the board). Neither provider warrants outputs are non-infringing, and standard tiers carry limited indemnity. Scoping + attestation reduce but do not eliminate copyright exposure on derived text.
 
 ---
 

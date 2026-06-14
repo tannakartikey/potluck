@@ -75,12 +75,9 @@ are the security and compliance spine of the project.
   |   6. submit_result() key-gated RPC ------ | ---> (SECURITY DEFINER write)     |
   +------------------------------------------+                     |
                                                                    v
-   STATIC GitHub Pages site  <---- reads PostgREST ----  scheduled GitHub Action
-   (task board, "what your credits built" feed)          batch-commits markdown to
-                                                          PUBLIC git repo + keep-alive ping
-                                                                   |
-                                                                   v
-                                            PUBLIC git repo = permanent forkable artifacts
+   STATIC GitHub Pages site  <---- reads PostgREST ----  artifact body stored in the DB
+   (task board, "what your credits built" feed)          (results.artifact_md), read by the
+                                                          board straight from Postgres
 ```
 
 Key division of labor:
@@ -88,10 +85,10 @@ Key division of labor:
 | Concern                | Lives where                          | Notes                                       |
 |------------------------|--------------------------------------|---------------------------------------------|
 | Task queue + index     | Postgres (`subtasks`)                | BOINC "work unit"                           |
-| Result metadata        | Postgres (`results`)                 | provenance, pointers — not the artifact body|
-| Artifact body          | Public git repo (markdown)           | ownerless, forkable, survives project death |
+| Result metadata        | Postgres (`results`)                 | provenance, pointers, plus the artifact body|
+| Artifact body          | Postgres (`results.artifact_md`)     | DB-canonical markdown; read by the board    |
 | All LLM compute        | Contributor machine                  | their account, their key                    |
-| The only compute we run| One scheduled GitHub Action          | batch-commit + keep-alive ping              |
+| The only compute we run| Nothing required (optional keep-alive)| tiny cron ping to dodge free-tier pause     |
 | Security model         | RLS + `SECURITY DEFINER` RPCs        | the whole thing; no app server we operate   |
 
 ---
@@ -166,9 +163,11 @@ runner, no LLM judge, no challenge window.
   the server stores **only** the SHA-256 hash of the key in `contributor_keys`.
   Every write RPC takes `p_key` and resolves the contributor by hash
   server-side — there is no login, no per-user JWT, no `auth.uid()`.
-- Publisher GitHub Action: **batch**-commits accepted results to the public git
-  repo (never commit-per-result — respect GitHub write rate limits), sets
-  `repo_path` / `commit_sha` / `permalink` on the result row.
+- The result body lives in `results.artifact_md` in the DB; the static board
+  reads it straight from PostgREST. No publisher Action, no git results repo —
+  the DB is the single canonical store. (`repo_path` / `commit_sha` / `permalink`
+  stay reserved for an optional future export/backup mirror — see
+  [open-questions](open-questions.md) #5 — not built in v0.)
 
 **Runner CLI (`potluck run`) deliverables**
 
@@ -213,7 +212,8 @@ an attributed, AI-labeled `unverified` markdown artifact appears on the public
 GitHub Pages site, with provenance.
 
 **Good first contributions:** runner CLI internals, the output guard, the
-anti-injection system prompt, the publisher Action, RLS anon-role test harness.
+anti-injection system prompt, the static board's artifact rendering, RLS
+anon-role test harness.
 
 ---
 
@@ -239,8 +239,8 @@ rather than a half-built consensus engine.
   `claim_subtask`).
 - **Retention hooks (cheap, from folding@home's engagement stack):**
   - Live "what your credits built" public feed of artifacts being produced.
-  - Per-contributor pages (artifacts, totals) backed by durable git-history
-    attribution.
+  - Per-contributor pages (artifacts, totals) backed by `contributor_id`
+    attribution on every result row.
 - **API-key execution path** documented as the **default** for unattended /
   batch queue-grinding (automation via API is unambiguously ToS-permitted by
   both providers). Frame subscription-CLI use as interactive, modest-volume
@@ -248,8 +248,11 @@ rather than a half-built consensus engine.
 - **Contributor attestation at submit time:** affirms (1) ran on own account
   within provider ToS, (2) owns the output and licenses it under the pool's open
   license, (3) the task is public and non-prohibited.
-- **Keep-alive ping** (in the publisher Action) to dodge the Supabase free-tier
-  7-day pause; artifacts in git never pause regardless.
+- **Keep-alive ping** — a standalone lightweight scheduled cron hitting the REST
+  API to dodge the Supabase free-tier ~7-day idle pause (which would take the
+  whole board offline now that the DB is the only store). Pair it with periodic
+  **DB backups/exports** (e.g. `pg_dump`) so the corpus isn't single-pointed on
+  one free project. See [open-questions](open-questions.md) #5.
 - Provenance polish: AI-generated label and full manifest surfaced on every
   public artifact.
 
@@ -386,7 +389,7 @@ atomic subtasks.
 | Phase | Ships                                                        | Verification           | Trust/anti-abuse                  | Tools/scope        |
 |-------|-------------------------------------------------------------|------------------------|-----------------------------------|--------------------|
 | 0     | Mock board + frozen schema (with reserved cols) + RLS draft | none                   | none                              | text-only          |
-| 1     | Live 3-table DB, RLS, RPC, runner CLI, publisher Action     | provenance, unverified | self-key + RLS, small set         | text-only no-tools |
+| 1     | Live 3-table DB, RLS, RPC, runner CLI, DB-stored artifacts  | provenance, unverified | self-key + RLS, small set         | text-only no-tools |
 | 2     | Categories, live feed, contributor pages, API-key path, attestation | provenance only | same + attestation                | text-only no-tools |
 | 3a    | Trust levels, PoW-lite, submission moderation, gold tasks   | Tier 0 challenge window| trust levels + rate limits        | text-only no-tools |
 | 3b    | Sandboxed runner + egress proxy + gate tests                | (carried from 3a)      | (carried)                         | **coding, gated**  |

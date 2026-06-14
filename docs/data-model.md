@@ -21,11 +21,13 @@ policies.
 
 If you are evaluating whether to contribute, the short version:
 
-- The central database is a **queue + index + provenance store**. It does no
-  heavy compute. It holds task definitions, work assignments (leases), and
-  result *metadata*.
-- The actual result artifacts (markdown) live in a **public Git repo**. The
-  database stores only pointers (`repo_path`, commit SHA, permalink).
+- The central database is a **queue + index + provenance + artifact store**. It
+  does no heavy compute. It holds task definitions, work assignments (leases),
+  result metadata, *and* the result bodies themselves.
+- The **database is the canonical and only artifact store.** The full result
+  markdown is `results.artifact_md`, kept in the DB — never pruned, never
+  mirrored to git. The reserved `repo_path` / `commit_sha` / `permalink` columns
+  exist for an **optional future** export/backup mirror, not for v0.
 - **Three tables ship in v1** (`contributors`, `subtasks`, `results`). Everything
   else in this document is either a *reserved column* (present but unused in v1)
   or a *deferred table* (named here so the roadmap is concrete, but not created
@@ -40,10 +42,13 @@ If you are evaluating whether to contribute, the short version:
 
 These constraints explain *why* the model looks the way it does:
 
-1. **The DB is an index, not a filesystem.** Artifacts are markdown committed to
-   a public Git repo (ownerless, forkable, diffable, free to host). The DB row
-   points at the file. This keeps the central footprint tiny and means the
-   commons survives even if the database disappears.
+1. **The DB is the queue, the index, and the artifact store.** The result body is
+   markdown held directly in the DB as `results.artifact_md`; the web board reads
+   it straight from the database. There is no git "results repo" and no publisher
+   step in v0. An optional export/backup mirror (writing the reserved
+   `repo_path` / `commit_sha` / `permalink`) is reserved for the future
+   (open-questions #5) if durability beyond the DB becomes a goal — it is not a
+   present property.
 
 2. **RLS is the entire security model.** The frontend is a static site that talks
    directly to the auto-generated PostgREST API using a public anon key. There is
@@ -80,8 +85,8 @@ These constraints explain *why* the model looks the way it does:
    +----------------+   +------------------+        +------------------+
    |  categories    |   |    subtasks      | 1    N |     results      |
    |  (tags/slugs)  |<--|  THE QUEUE +     |--------|  metadata +      |
-   +----------------+   |  THE INDEX       |        |  provenance      |
-     category_slug      |  (BOINC 'work    |        |  (body in Git)   |
+   +----------------+   |  THE INDEX       |        |  provenance +    |
+     category_slug      |  (BOINC 'work    |        |  body in the DB  |
                         |   unit')         |        +------------------+
                         +------------------+
                               ^
@@ -215,25 +220,26 @@ public board the static site renders. One row = one atomic work unit.
 
 ---
 
-### `results` — metadata + provenance (body lives in Git)
+### `results` — metadata + provenance + the artifact body (in the DB)
 
-One row per execution of a subtask. The DB row is lightweight metadata and a
-provenance manifest; the markdown **body** is mirrored to the public Git repo by
-the publisher GitHub Action, after which `artifact_md` can be pruned.
+One row per execution of a subtask. The DB row carries lightweight metadata, a
+provenance manifest, **and** the full markdown body: `artifact_md` is the
+canonical result body, kept in the DB — never pruned and never mirrored
+elsewhere. The web board reads it straight from the database.
 
 | Column                | Type          | Null | Default       | Notes |
 |-----------------------|---------------|------|---------------|-------|
 | `id`                  | `uuid`        | no   | `gen_random_uuid()` | PK. |
 | `subtask_id`          | `uuid`        | no   | —             | FK → `subtasks(id)`. |
 | `contributor_id`      | `uuid`        | no   | —             | FK → `contributors(id)`. Set server-side by `submit_result()` to the contributor resolved from the presented key (not client input). |
-| `artifact_md`         | `text`        | no   | —             | Produced markdown. Mirrored to Git by the publisher Action; may be pruned afterward. |
+| `artifact_md`         | `text`        | no   | —             | **The canonical result body.** Produced markdown, kept in the DB and served to the board straight from here. Never pruned, never mirrored. |
 | `reported_model`      | `text`        | no   | —             | **Self-declared** model that produced this result; not verified. WHO/WHAT/WHEN — not correctness, not a model proof. |
 | `self_described_model`| `text`        | yes  | —             | Optional: what the model said when asked to name itself. Weak anomaly signal only. |
 | `token_count`         | `int`         | yes  | —             | Provenance: tokens spent on this run. |
 | `prompt_hash`         | `text`        | yes  | —             | Provenance: hash of the exact wrapped prompt. |
 | `output_guard_passed` | `boolean`     | yes  | `true`        | Client-side pre-publish guard verdict (secret/policy scan). Insert is rejected if `false`. |
 | `created_at`          | `timestamptz` | no   | `now()`       | |
-| `repo_path`           | `text`        | yes  | —             | Set by the publisher Action, e.g. `results/<id>.md`. |
+| `repo_path`           | `text`        | yes  | —             | **Reserved.** Unused in v0. Path within an optional future export/backup mirror, e.g. `results/<id>.md`. |
 
 **Reserved (v2):**
 
@@ -241,8 +247,8 @@ the publisher GitHub Action, after which `artifact_md` can be pruned.
 |-----------------------|---------|----------------|------------|
 | `verification_status` | `text`  | `'unverified'` | `CHECK (... IN ('unverified','consensus','confirmed'))`. v1 stays `unverified`. |
 | `structured_output`   | `jsonb` | —              | Normalized claims + citation URLs for consensus comparison (never compare raw prose). |
-| `commit_sha`          | `text`  | —              | Set by publisher Action alongside `repo_path`. |
-| `permalink`           | `text`  | —              | Public URL of the committed artifact. |
+| `commit_sha`          | `text`  | —              | Reserved for an optional future export/backup mirror, alongside `repo_path`. Unused in v0. |
+| `permalink`           | `text`  | —              | Reserved: public URL of the exported artifact, if a future mirror is built. Unused in v0. |
 
 **RLS:**
 

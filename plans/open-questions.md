@@ -60,6 +60,14 @@ When **outputs stop being text** (generated images, audio, video, PDF, Word, sli
 files won't go in the DB — they go in **object storage** (Supabase Storage; see #16), with the
 DB holding only a pointer. Out of v0.
 
+**Tradeoff accepted (be honest about it):** DB-only gives up the two things the git mirror bought —
+(1) "the commons survives the project's death" (git is ownerless/forkable; a Supabase project is
+not), and (2) Supabase's free tier **pauses after ~7 days idle**, which would take the whole board
+offline. Mitigations if/when they matter: a lightweight scheduled **keep-alive ping** (a tiny cron
+hitting the REST API) to dodge the pause, plus periodic **DB backups/exports** (pg_dump or the
+optional git/Storage export mirror) so the corpus isn't single-pointed on one free project. Tracked,
+not built for v0.
+
 ## 6. Verification depth in v1 — **[locked: provenance-only, single-source]**
 
 Every artifact is labeled `unverified, AI-generated`. No consensus, no second

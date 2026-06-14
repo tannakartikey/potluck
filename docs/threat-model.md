@@ -328,6 +328,18 @@ Two notes kept deliberately honest:
 
 ---
 
+## 9a. Backend note: Codex's safe mode is best-effort, not no-tools
+
+The Claude Code backend enforces **hard no-tools** safe mode (§2). The **Codex backend**
+(`codex exec`) cannot — Codex is agentic and has no "allow zero tools" switch. The runner
+runs it with the strongest available locks: a **read-only sandbox** (no writes, no
+network), an **isolated empty working dir**, ignored user config/rules, an ephemeral
+session, plus the safety preamble and the pre-publish output guard. The honest residual:
+Codex can still run **read-only shell**, so a malicious task could in principle read local
+files and try to surface them in the artifact (the output guard is the backstop, not a
+guarantee). This makes **Claude Code the safer default**; hardening Codex (a real no-tools
+config, or excluding it from untrusted tasks) is tracked.
+
 ## 10. The coding-task gate (published now, NOT relied on in v1)
 
 v1 has no shell/code/tool execution, so it sidesteps OS-level sandboxing entirely. Coding tasks are a *separate, much later track*. Before any shell/code task ships, the runner **must** enforce all of the following — this is the published bar, documented now so it cannot be skipped later:

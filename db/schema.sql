@@ -80,7 +80,11 @@ create table if not exists results (
                        check (verification_status in ('unverified','consensus','confirmed')),
   structured_output    jsonb,
   commit_sha           text,
-  permalink            text
+  permalink            text,
+  -- reserved: richer provenance (v0 leaves these null; the runner fills them later)
+  usage                jsonb,         -- full token breakdown: input / output / reasoning / cache
+  reasoning_path       text,          -- git pointer to the model's thinking trace, when captured + ToS-allowed
+  has_reasoning        boolean not null default false
 );
 create index if not exists results_subtask_idx on results(subtask_id);
 

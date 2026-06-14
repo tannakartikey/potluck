@@ -1,5 +1,10 @@
 # Data Model
 
+> **v0 auth note:** writes are authenticated by a self-generated contributor
+> **key** (no OAuth / Supabase Auth); any `auth.uid()` references below are
+> superseded — see [`db/schema.sql`](../db/schema.sql) and [`AGENTS.md`](../AGENTS.md)
+> for the current key-gated RPCs. The entity shapes here remain accurate.
+
 This document describes Potluck's data model: the entities, their relationships,
 field-level detail, and the lifecycle statuses that drive the task queue.
 

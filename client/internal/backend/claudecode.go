@@ -20,7 +20,8 @@ import (
 // local CLAUDE.md / project files are auto-included. (Known v0 limitation: the user's
 // global ~/.claude memory may still load; hardening that is tracked in the threat model.)
 type ClaudeCode struct {
-	Bin string
+	Bin    string
+	Docker *DockerConfig // when set, run the CLI inside a locked-down container (#23)
 }
 
 func NewClaudeCode() *ClaudeCode { return &ClaudeCode{Bin: "claude"} }
@@ -67,8 +68,12 @@ func (c *ClaudeCode) Run(ctx context.Context, req Request) (*Response, error) {
 		args = append(args, "--max-budget-usd", fmt.Sprintf("%.4f", req.MaxUSD))
 	}
 
-	cmd := exec.CommandContext(ctx, c.Bin, args...)
-	cmd.Dir = os.TempDir() // avoid auto-discovering a local CLAUDE.md / project files
+	prog, runArgs := wrapExec(c.Docker, c.Bin, args)
+	cmd := exec.CommandContext(ctx, prog, runArgs...)
+	if c.Docker == nil {
+		cmd.Dir = os.TempDir() // host: avoid auto-discovering a local CLAUDE.md / project files
+	}
+	// In container mode WORKDIR is an empty tmpfs, so there are no local files to discover.
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

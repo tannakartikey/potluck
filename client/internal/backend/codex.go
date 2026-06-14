@@ -18,7 +18,8 @@ import (
 // the pre-publish output guard. The agent can still run READ-ONLY shell, so this is
 // weaker than the Claude Code backend's hard no-tools mode — see docs/threat-model.md.
 type Codex struct {
-	Bin string
+	Bin    string
+	Docker *DockerConfig // when set, run the CLI inside a locked-down container (#23)
 }
 
 func NewCodex() *Codex { return &Codex{Bin: "codex"} }
@@ -46,35 +47,46 @@ func (c *Codex) Run(ctx context.Context, req Request) (*Response, error) {
 		defer cancel()
 	}
 
-	work, err := os.MkdirTemp("", "potluck-codex-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(work)
-	msgFile, err := os.CreateTemp("", "potluck-codex-msg-*")
-	if err != nil {
-		return nil, err
-	}
-	_ = msgFile.Close()
-	defer os.Remove(msgFile.Name())
-
 	args := []string{
 		"exec", "--json",
-		"-o", msgFile.Name(),
-		"--cd", work,
 		"--skip-git-repo-check",
 		"--ephemeral",
 		"--ignore-user-config",
 		"--ignore-rules",
 		"--sandbox", "read-only", // SAFE MODE (best-effort): no writes, no network
 	}
+
+	// On the host we isolate the run in a throwaway temp dir and capture the final
+	// message to a temp file. In container mode WORKDIR is already an isolated tmpfs and
+	// those host paths don't exist inside the container, so we drop --cd/-o and rely on
+	// the stdout JSONL agent_message instead.
+	var work, msgFileName string
+	if c.Docker == nil {
+		var err error
+		if work, err = os.MkdirTemp("", "potluck-codex-"); err != nil {
+			return nil, err
+		}
+		defer os.RemoveAll(work)
+		msgFile, err := os.CreateTemp("", "potluck-codex-msg-*")
+		if err != nil {
+			return nil, err
+		}
+		_ = msgFile.Close()
+		msgFileName = msgFile.Name()
+		defer os.Remove(msgFileName)
+		args = append(args, "-o", msgFileName, "--cd", work)
+	}
+
 	if req.Model != "" {
 		args = append(args, "-m", req.Model)
 	}
 	args = append(args, req.System+"\n\n"+req.Prompt)
 
-	cmd := exec.CommandContext(ctx, c.Bin, args...)
-	cmd.Dir = work
+	prog, runArgs := wrapExec(c.Docker, c.Bin, args)
+	cmd := exec.CommandContext(ctx, prog, runArgs...)
+	if c.Docker == nil {
+		cmd.Dir = work
+	}
 	cmd.Stdin = nil // don't let codex read stdin
 	out, err := cmd.Output()
 	if err != nil {
@@ -86,8 +98,10 @@ func (c *Codex) Run(ctx context.Context, req Request) (*Response, error) {
 
 	usage, streamMsg := parseCodexJSONL(out)
 	text := streamMsg
-	if b, rerr := os.ReadFile(msgFile.Name()); rerr == nil && len(bytes.TrimSpace(b)) > 0 {
-		text = strings.TrimRight(string(b), "\n")
+	if msgFileName != "" {
+		if b, rerr := os.ReadFile(msgFileName); rerr == nil && len(bytes.TrimSpace(b)) > 0 {
+			text = strings.TrimRight(string(b), "\n")
+		}
 	}
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("codex produced no output")

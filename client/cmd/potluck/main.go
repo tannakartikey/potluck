@@ -71,6 +71,11 @@ run flags:
   --poll N          --watch poll interval in seconds (default 15)
   --max-week N      stop when your weekly plan usage reaches N% (Claude Code; 0 = off)
   --max-session N   stop when your 5-hour session usage reaches N% (Claude Code; 0 = off)
+  --container       run each task in a locked-down Docker container (recommended;
+                    mounts ONLY your auth file, never your session history)
+  --image NAME      container image (default potluck-runner:latest)
+  --docker-memory   container memory limit (default 2g)
+  --docker-cpus     container CPU limit (default 2)
 
 submit flags:
   --title, --prompt (required), --acceptance, --category, --tags a,b, --budget N
@@ -116,6 +121,10 @@ func cmdRun(args []string) {
 	poll := fs.Int("poll", 15, "poll interval in seconds for --watch")
 	maxWeek := fs.Int("max-week", 0, "stop at N% weekly plan usage (0 = off)")
 	maxSession := fs.Int("max-session", 0, "stop at N% session (5h) usage (0 = off)")
+	container := fs.Bool("container", false, "run each task inside a locked-down Docker container (recommended)")
+	image := fs.String("image", "", "container image to use (default potluck-runner:latest)")
+	dockerMem := fs.String("docker-memory", "2g", "container memory limit (with --container)")
+	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit (with --container)")
 	_ = fs.Parse(args)
 
 	if !config.HasKey() {
@@ -131,12 +140,34 @@ func cmdRun(args []string) {
 	if chosen == "" {
 		chosen = "claude-code"
 	}
+	var dcfg *backend.DockerConfig
+	if *container {
+		home, _ := os.UserHomeDir()
+		mounts, env := backend.AuthMountsFor(chosen, home)
+		if !backend.HasContainerAuth(chosen, home, mounts, env) {
+			fmt.Fprintf(os.Stderr, "container mode needs your %s credentials, but none were found.\n", chosen)
+			if chosen == "claude-code" {
+				fmt.Fprintln(os.Stderr, "  set ANTHROPIC_API_KEY, or use a Claude install that writes ~/.claude/.credentials.json.")
+			} else {
+				fmt.Fprintln(os.Stderr, "  run `codex login` (writes ~/.codex/auth.json) or set OPENAI_API_KEY.")
+			}
+			os.Exit(1)
+		}
+		dcfg = &backend.DockerConfig{
+			Image:  *image,
+			Mounts: mounts,
+			Env:    env,
+			Memory: *dockerMem,
+			CPUs:   *dockerCPUs,
+		}
+	}
+
 	var be backend.Backend
 	switch chosen {
 	case "claude-code":
-		be = backend.NewClaudeCode()
+		be = &backend.ClaudeCode{Bin: "claude", Docker: dcfg}
 	case "codex":
-		be = backend.NewCodex()
+		be = &backend.Codex{Bin: "codex", Docker: dcfg}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown backend %q (supported: claude-code, codex)\n", chosen)
 		os.Exit(1)

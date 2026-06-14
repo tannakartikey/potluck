@@ -399,7 +399,12 @@ no-tools agent can't fetch. v0.5 should let a task **opt into specific tools, we
 Deferred to v0.5 — but it's what unlocks the "daily news / what-changed-this-week" tasks that
 motivated the project.
 
-## 23. Containerized execution sandbox — **[discussion; the enabler for tools + coding tasks]**
+## 23. Containerized execution sandbox — **[v0 LAUNCH REQUIREMENT — per the user]**
+
+**The user has made this a launch blocker for v0:** untrusted community tasks should run in a
+container, not directly on the host, *before* any public launch. So the host-side no-tools runner
+we built becomes the **dev/test** path, and a **container runner is required for the public
+launch**.
 
 Run each task's agent inside a **lightweight container / OS sandbox**, isolating execution from
 the host. This is the missing piece that makes the *dangerous* stuff safe, and it composes with
@@ -426,8 +431,14 @@ tmpfs, **non-root**, **no host credential mounts** (scrub env; deny `~/.ssh` `~/
 CPU/mem/time caps, **fail-closed** if the sandbox can't start. **Tiering:** no-tools tasks can
 stay host-side (today); **tool/coding tasks require the container runner**.
 
-This is the foundation for lifting no-tools (#22) and opening coding tasks (§10). Deferred — but
-it's the key that unlocks the riskier, higher-value half of the project.
+**Auth implication:** mounting the host's Claude/Codex *subscription* login into a container is
+messy, so the container runner most naturally uses a **scoped API key** (Anthropic/OpenAI) passed
+as an env var — also the lowest-blast-radius credential. So "container mode" likely means an
+**API-key backend running inside the locked-down container** (default-deny network except the LLM
+API), with the host-side CLI backends kept for local/dev. **Open build decisions:** container tech
+(Docker vs native sandbox vs gVisor/microVM); whether Docker-installed is an acceptable contributor
+requirement; the egress policy; whether to publish a prebuilt image. This is now on the critical
+path to launch, not deferred.
 
 ## 24. Correcting / superseding a result (no edits, only supersedes) — **[discussion]**
 

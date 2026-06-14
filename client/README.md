@@ -66,9 +66,11 @@ cd client && go test ./...
 
 ## Known v0 limitations (tracked in [../plans/open-questions.md](../plans/open-questions.md))
 
-- Backend is **Claude Code only**; Codex / raw API / custom-command land behind the same
-  adapter interface later (#2).
-- Safe mode is best-effort; the future custom-command backend can't enforce no-tools.
+- Backends: **Claude Code** (hard no-tools safe mode) and **Codex** (`codex exec`,
+  **best-effort** safe mode — read-only sandbox + isolated empty dir; Codex is agentic,
+  so it can still run *read-only* shell, and it reports tokens but **not** cost). Raw
+  API / custom-command land behind the same adapter later (#2).
+- The future custom-command backend can't enforce no-tools at all (user's responsibility).
 - No usage-limit awareness yet (Claude's 5-hour vs weekly windows) — the 3-failure
   circuit breaker is the interim guard (#17).
 - Bleeding-edge / install-from-source; signed releases + an auto-updater come later

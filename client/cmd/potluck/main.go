@@ -52,9 +52,11 @@ usage:
   potluck version
 
 run flags:
+  --backend B       claude-code | codex (default: config / claude-code)
   --topics a,b      only claim these categories (default: all)
   --budget N        skip tasks needing more than N tokens (default: config / 8000)
-  --model M         model: alias (haiku|sonnet|opus) or full id (default: config)
+  --model M         model: Claude alias (haiku|sonnet|opus) or full id; for codex
+                    pass a Codex model (e.g. gpt-5-codex) or omit to use its default
   --max-tasks N     stop after N tasks (default: 0 = until queue empty / Ctrl-C)
 
 spec & docs: https://github.com/tannakartikey/potluck/blob/main/AGENTS.md
@@ -89,6 +91,7 @@ func cmdRegister(args []string) {
 
 func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	backendName := fs.String("backend", "", "backend: claude-code | codex")
 	topics := fs.String("topics", "", "comma-separated categories")
 	budget := fs.Int("budget", 0, "skip tasks needing more than N tokens")
 	model := fs.String("model", "", "model alias or id")
@@ -104,19 +107,25 @@ func cmdRun(args []string) {
 	cfg, err := config.Load()
 	check(err)
 
+	chosen := pickStr(*backendName, cfg.Backend)
+	if chosen == "" {
+		chosen = "claude-code"
+	}
 	var be backend.Backend
-	switch cfg.Backend {
-	case "", "claude-code":
+	switch chosen {
+	case "claude-code":
 		be = backend.NewClaudeCode()
+	case "codex":
+		be = backend.NewCodex()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown backend %q (v0 supports: claude-code)\n", cfg.Backend)
+		fmt.Fprintf(os.Stderr, "unknown backend %q (supported: claude-code, codex)\n", chosen)
 		os.Exit(1)
 	}
 
 	opts := runner.Options{
 		Topics:       splitCSV(*topics),
 		BudgetTokens: pickInt(*budget, cfg.BudgetTokens),
-		Model:        pickStr(*model, cfg.Model),
+		Model:        resolveModel(chosen, *model, cfg.Model),
 		MaxTasks:     *maxTasks,
 	}
 
@@ -165,6 +174,19 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+// resolveModel: an explicit --model wins. Otherwise the config default applies only to
+// claude-code (its default is a Claude alias); other backends use their own default so
+// we never hand a Claude alias to Codex (or vice-versa).
+func resolveModel(backendName, flag, cfg string) string {
+	if flag != "" {
+		return flag
+	}
+	if backendName == "claude-code" {
+		return cfg
+	}
+	return ""
 }
 
 func pickInt(v, d int) int {

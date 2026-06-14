@@ -64,6 +64,7 @@ type Subtask struct {
 	ModelPolicy    string          `json:"model_policy"`
 	Attachments    json.RawMessage `json:"attachments"`
 	Status         string          `json:"status"`
+	SubmittedBy    string          `json:"submitted_by"`
 }
 
 type Result struct {
@@ -239,6 +240,65 @@ func (c *Client) SubmitTask(ctx context.Context, key, title, prompt, acceptance,
 	var out Subtask
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("decode submit_task: %w", err)
+	}
+	return &out, nil
+}
+
+// ModerationQueue returns up to `limit` tasks awaiting moderation (status 'pending', plus
+// 'needs_review' if includeEscalated). Reads via the public anon key (RLS allows SELECT).
+// excludeContributor, when set, drops that contributor's own submissions (they cannot
+// moderate themselves — moderate_task rejects it), keeping the queue actionable.
+func (c *Client) ModerationQueue(ctx context.Context, limit int, includeEscalated bool, excludeContributor string) ([]Subtask, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	q := url.Values{}
+	if includeEscalated {
+		q.Set("status", "in.(pending,needs_review)")
+	} else {
+		q.Set("status", "eq.pending")
+	}
+	q.Set("select", "id,title,prompt,acceptance,category_slug,tags,token_budget,status,submitted_by")
+	q.Set("order", "created_at.asc") // oldest first — fairest moderation order
+	q.Set("limit", fmt.Sprintf("%d", limit))
+	if excludeContributor != "" {
+		q.Set("submitted_by", "neq."+excludeContributor)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/rest/v1/subtasks?"+q.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("apikey", c.AnonKey)
+	req.Header.Set("Authorization", "Bearer "+c.AnonKey)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("moderation queue: %s: %s", resp.Status, truncate(string(data), 200))
+	}
+	var rows []Subtask
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, fmt.Errorf("decode moderation queue: %w", err)
+	}
+	return rows, nil
+}
+
+// Moderate records an AI moderator's verdict on a pending task via the key-gated RPC:
+// accept → 'open' (claimable), reject → 'rejected', escalate → 'needs_review'. The RPC
+// rejects moderating your own submission.
+func (c *Client) Moderate(ctx context.Context, key, subtaskID, verdict, note string) (*Subtask, error) {
+	data, err := c.rpc(ctx, "moderate_task", map[string]any{
+		"p_key": key, "p_subtask_id": subtaskID, "p_verdict": verdict, "p_note": note,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out Subtask
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("decode moderate: %w", err)
 	}
 	return &out, nil
 }

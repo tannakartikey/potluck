@@ -29,6 +29,8 @@ func main() {
 		cmdRegister(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
+	case "moderate":
+		cmdModerate(os.Args[2:])
 	case "search":
 		cmdSearch(os.Args[2:])
 	case "submit":
@@ -54,6 +56,7 @@ func usage() {
 usage:
   potluck register [--name <handle>]   create your contributor key (one time)
   potluck run [flags]                  claim → run → submit, until --max-tasks or Ctrl-C
+  potluck moderate [flags]             AI-moderate submitted (pending) tasks → accept/reject/escalate
   potluck search <query>               full-text search the open task board
   potluck submit --title T --prompt P  submit a task (lands 'pending' until AI-moderated)
   potluck usage                        show your Claude plan usage (session + week)
@@ -76,6 +79,14 @@ run flags:
   --image NAME      container image (default potluck-runner:latest)
   --docker-memory   container memory limit (default 2g)
   --docker-cpus     container CPU limit (default 2)
+
+moderate flags:
+  --backend B       claude-code | codex (default: config / claude-code)
+  --model M         model alias or id
+  --max-tasks N     stop after N tasks (default: 0 = whole queue)
+  --include-escalated  also re-examine 'needs_review' tasks
+  --dry-run         print verdicts but don't apply them
+  --container       run the moderator agent in a locked-down container
 
 submit flags:
   --title, --prompt (required), --acceptance, --category, --tags a,b, --budget N
@@ -140,38 +151,7 @@ func cmdRun(args []string) {
 	if chosen == "" {
 		chosen = "claude-code"
 	}
-	var dcfg *backend.DockerConfig
-	if *container {
-		home, _ := os.UserHomeDir()
-		mounts, env := backend.AuthMountsFor(chosen, home)
-		if !backend.HasContainerAuth(chosen, home, mounts, env) {
-			fmt.Fprintf(os.Stderr, "container mode needs your %s credentials, but none were found.\n", chosen)
-			if chosen == "claude-code" {
-				fmt.Fprintln(os.Stderr, "  set ANTHROPIC_API_KEY, or use a Claude install that writes ~/.claude/.credentials.json.")
-			} else {
-				fmt.Fprintln(os.Stderr, "  run `codex login` (writes ~/.codex/auth.json) or set OPENAI_API_KEY.")
-			}
-			os.Exit(1)
-		}
-		dcfg = &backend.DockerConfig{
-			Image:  *image,
-			Mounts: mounts,
-			Env:    env,
-			Memory: *dockerMem,
-			CPUs:   *dockerCPUs,
-		}
-	}
-
-	var be backend.Backend
-	switch chosen {
-	case "claude-code":
-		be = &backend.ClaudeCode{Bin: "claude", Docker: dcfg}
-	case "codex":
-		be = &backend.Codex{Bin: "codex", Docker: dcfg}
-	default:
-		fmt.Fprintf(os.Stderr, "unknown backend %q (supported: claude-code, codex)\n", chosen)
-		os.Exit(1)
-	}
+	be := buildBackend(chosen, *container, *image, *dockerMem, *dockerCPUs)
 	if chosen != "claude-code" && (*maxWeek > 0 || *maxSession > 0) {
 		fmt.Fprintf(os.Stderr, "note: --max-week/--max-session need plan-usage reporting (Claude Code only); ignored for %s.\n", chosen)
 	}
@@ -190,6 +170,79 @@ func cmdRun(args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := runner.Run(ctx, api.New(), be, key, opts); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+// buildBackend constructs the chosen execution backend, optionally wrapped in the
+// locked-down Docker container (shared by `run` and `moderate`). Exits with a clear
+// message if container mode is requested without usable credentials.
+func buildBackend(chosen string, container bool, image, dockerMem, dockerCPUs string) backend.Backend {
+	var dcfg *backend.DockerConfig
+	if container {
+		home, _ := os.UserHomeDir()
+		mounts, env := backend.AuthMountsFor(chosen, home)
+		if !backend.HasContainerAuth(chosen, home, mounts, env) {
+			fmt.Fprintf(os.Stderr, "container mode needs your %s credentials, but none were found.\n", chosen)
+			if chosen == "claude-code" {
+				fmt.Fprintln(os.Stderr, "  set ANTHROPIC_API_KEY, or use a Claude install that writes ~/.claude/.credentials.json.")
+			} else {
+				fmt.Fprintln(os.Stderr, "  run `codex login` (writes ~/.codex/auth.json) or set OPENAI_API_KEY.")
+			}
+			os.Exit(1)
+		}
+		dcfg = &backend.DockerConfig{Image: image, Mounts: mounts, Env: env, Memory: dockerMem, CPUs: dockerCPUs}
+	}
+	switch chosen {
+	case "claude-code":
+		return &backend.ClaudeCode{Bin: "claude", Docker: dcfg}
+	case "codex":
+		return &backend.Codex{Bin: "codex", Docker: dcfg}
+	default:
+		fmt.Fprintf(os.Stderr, "unknown backend %q (supported: claude-code, codex)\n", chosen)
+		os.Exit(1)
+		return nil
+	}
+}
+
+func cmdModerate(args []string) {
+	fs := flag.NewFlagSet("moderate", flag.ExitOnError)
+	backendName := fs.String("backend", "", "backend: claude-code | codex")
+	model := fs.String("model", "", "model alias or id")
+	maxTasks := fs.Int("max-tasks", 0, "stop after N tasks (0 = whole queue)")
+	includeEscalated := fs.Bool("include-escalated", false, "also re-examine 'needs_review' tasks")
+	dryRun := fs.Bool("dry-run", false, "print verdicts but don't apply them")
+	container := fs.Bool("container", false, "run the moderator agent inside a locked-down Docker container")
+	image := fs.String("image", "", "container image (default potluck-runner:latest)")
+	dockerMem := fs.String("docker-memory", "2g", "container memory limit (with --container)")
+	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit (with --container)")
+	_ = fs.Parse(args)
+
+	if !config.HasKey() {
+		fmt.Fprintln(os.Stderr, "no key found — run 'potluck register' first.")
+		os.Exit(1)
+	}
+	key, err := config.LoadKey()
+	check(err)
+	cfg, err := config.Load()
+	check(err)
+
+	chosen := pickStr(*backendName, cfg.Backend)
+	if chosen == "" {
+		chosen = "claude-code"
+	}
+	be := buildBackend(chosen, *container, *image, *dockerMem, *dockerCPUs)
+
+	opts := runner.ModerateOptions{
+		Model:            resolveModel(chosen, *model, cfg.Model),
+		MaxTasks:         *maxTasks,
+		IncludeEscalated: *includeEscalated,
+		DryRun:           *dryRun,
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := runner.Moderate(ctx, api.New(), be, key, cfg.ContributorID, opts); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

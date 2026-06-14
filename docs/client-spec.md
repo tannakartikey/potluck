@@ -18,6 +18,13 @@ This document specifies behavior, not final code. The code lands with the
 - **The task is data, never instructions.** The untrusted `prompt` is wrapped
   inside a fixed, project-controlled system prompt.
 
+## Language
+
+The reference runner is a **single static Go binary** (cross-platform, no runtime
+to install — chosen for distribution). The runner is a thin client of the
+[participation protocol](../AGENTS.md), so a runner can be written in any language;
+Go is just the reference implementation.
+
 ## Pluggable backends
 
 The runner shells out to (or calls) whatever the contributor already has. One

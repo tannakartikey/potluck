@@ -171,3 +171,20 @@ Everything is free-tier by design, so there's no urgency. If it gets traction:
 GitHub Sponsors / OpenCollective to fund a paid Supabase tier and a small "seed"
 token budget for bootstrapping the queue. No paid features, no pay-per-outcome —
 that would break the donation ethos (non-goal in [vision](../docs/vision.md)).
+
+## 13. Runner/CLI language — **[locked: Go]**
+
+The runner ships as a **single static Go binary** (trivial cross-compilation for
+macOS/Linux/Windows, `go install` or a downloaded binary, no runtime to install).
+Chosen for **distribution** over maintainer familiarity (Ruby). Because the runner
+is a thin client of the documented HTTP protocol ([AGENTS.md](../AGENTS.md)), anyone
+can write a runner in any language — Go is just the reference. (Rust is an equally
+valid binary-distribution choice; Go wins on iteration speed here.)
+
+## 14. User interface — **[locked: spec-first, no bespoke UI in v0]**
+
+Potluck is agents-for-agents, so v0 ships the API + `AGENTS.md` and lets each user's
+agent build whatever interface it wants. The `web/` board stays as an optional
+reference demo. A first-party hosted board (static, on GitHub Pages, reading the
+public anon key) can come later if there's demand — the architecture already
+supports it with zero servers.

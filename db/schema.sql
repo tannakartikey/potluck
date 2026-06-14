@@ -206,6 +206,22 @@ grant execute on function claim_subtask(text[], int)                            
 grant execute on function submit_result(uuid, text, text, text, int, text, boolean) to authenticated;
 grant execute on function release_lease(uuid, boolean)                            to authenticated;
 
+-- ============================================================================
+-- Least-privilege table grants (defense in depth)
+-- ============================================================================
+-- Supabase grants anon/authenticated broad privileges by default, leaving RLS as
+-- the only gate. We additionally REVOKE what we never want, so safety does not
+-- depend on the mere ABSENCE of a policy. Writes to subtasks/results happen ONLY
+-- through the SECURITY DEFINER RPCs above (which run as the table owner).
+revoke all on contributors, subtasks, results from anon, authenticated;
+
+-- anon = read-only public access (SELECT still passes through RLS).
+grant select on contributors, subtasks, results to anon;
+
+-- authenticated = read all; create/own a contributor row; everything else via RPC.
+grant select on contributors, subtasks, results to authenticated;
+grant insert, update on contributors to authenticated;
+
 -- ── seed categories are just slugs on subtasks; no table needed in v1. ───────
 -- Example maintainer-authored task (run as service role, not via client):
 -- insert into subtasks (category_slug, title, prompt, acceptance, token_budget)

@@ -28,10 +28,9 @@ create table if not exists contributors (
   id               uuid primary key default gen_random_uuid(),
   display_name     text,                              -- self-chosen; attribution/leaderboards
   created_at       timestamptz not null default now(),
-  -- reserved (v2)
-  reputation       int  not null default 0,
-  trust_level      int  not null default 0,
-  validated_streak int  not null default 0
+  reputation       int  not null default 0,   -- reserved (v2)
+  trust_level      int  not null default 0,   -- 0 untrusted · ≥1 trusted moderator · ≥2 admin (grants trust)
+  validated_streak int  not null default 0    -- reserved (v2)
 );
 
 -- ── contributor_keys  (SECRET; no anon access — only the RPCs touch it) ──────
@@ -71,6 +70,7 @@ create table if not exists subtasks (
   created_at       timestamptz not null default now(),
   -- submission / moderation: tasks land 'pending' via submit_task, moderated to 'open'/'rejected'
   submitted_by     uuid references contributors(id),
+  moderated_by     uuid references contributors(id),  -- which trusted moderator accepted/rejected it (audit)
   rejection_note   text,
   dedupe_key       text,                              -- md5(normalize(category+title+prompt)); unique
   -- generated full-text search vector over the task text + tags (GIN-indexed below)
@@ -274,13 +274,21 @@ begin
 end;
 $$;
 
--- moderate_task: an AI moderator (a DIFFERENT contributor) records a verdict on a pending task.
+-- moderate_task: a TRUSTED moderator (a DIFFERENT contributor with trust_level >= 1) records a
+-- verdict on a pending task. Trust is bound to the contributor KEY and enforced here in the RPC —
+-- the only sound way to restrict moderation when the client binary itself is open-source and runs
+-- on hardware we don't control (you can't attest a binary; you CAN vet an identity). See the
+-- security trajectory in plans/vision.md and open-questions.md #27/#28.
 create or replace function moderate_task(p_key text, p_subtask_id uuid, p_verdict text, p_note text default null)
 returns subtasks language plpgsql security definer set search_path = public, extensions as $$
-declare cid uuid; s subtasks;
+declare cid uuid; lvl int; s subtasks;
 begin
   cid := _contributor_for_key(p_key);
   if cid is null then raise exception 'invalid key'; end if;
+  select trust_level into lvl from contributors where id = cid;
+  if coalesce(lvl, 0) < 1 then
+    raise exception 'not authorized: only trusted moderators (trust_level >= 1) may moderate — ask an admin to grant you moderator trust';
+  end if;
   if p_verdict not in ('accept','reject','escalate') then raise exception 'bad verdict'; end if;
   select * into s from subtasks where id = p_subtask_id;
   if not found then raise exception 'no such task'; end if;
@@ -288,10 +296,31 @@ begin
   if s.submitted_by = cid then raise exception 'cannot moderate your own submission'; end if;
   update subtasks
      set status = case p_verdict when 'accept' then 'open' when 'reject' then 'rejected' else 'needs_review' end,
-         rejection_note = case when p_verdict = 'reject' then p_note else rejection_note end
+         rejection_note = case when p_verdict = 'reject' then p_note else rejection_note end,
+         moderated_by = cid
    where id = p_subtask_id
    returning * into s;
   return s;
+end;
+$$;
+
+-- grant_trust: an ADMIN (trust_level >= 2) grants/revokes MODERATOR trust (level 0 or 1) to a
+-- contributor. Admin level itself is bootstrapped out-of-band (set trust_level=2 via the Supabase
+-- console / service_role on a known-good contributor) and is never grantable through this RPC —
+-- so the trust root is a deliberate human decision, not something a key can self-escalate into.
+create or replace function grant_trust(p_key text, p_contributor_id uuid, p_level int)
+returns contributors language plpgsql security definer set search_path = public, extensions as $$
+declare admin_id uuid; admin_lvl int; c contributors;
+begin
+  admin_id := _contributor_for_key(p_key);
+  if admin_id is null then raise exception 'invalid key'; end if;
+  select trust_level into admin_lvl from contributors where id = admin_id;
+  if coalesce(admin_lvl, 0) < 2 then raise exception 'not authorized: only admins (trust_level >= 2) may grant trust'; end if;
+  if p_level not in (0, 1) then raise exception 'level must be 0 (revoke moderator) or 1 (grant moderator)'; end if;
+  if p_contributor_id = admin_id then raise exception 'cannot change your own trust level'; end if;
+  update contributors set trust_level = p_level where id = p_contributor_id returning * into c;
+  if not found then raise exception 'no such contributor'; end if;
+  return c;
 end;
 $$;
 
@@ -310,6 +339,7 @@ grant execute on function submit_result(text, uuid, text, text, text, int, text,
 grant execute on function release_lease(text, uuid, boolean)                                  to anon;
 grant execute on function submit_task(text, text, text, text, text, text[], int, text, text)  to anon;
 grant execute on function moderate_task(text, uuid, text, text)                               to anon;
+grant execute on function grant_trust(text, uuid, int)                                        to anon;
 -- internal resolver is never callable directly
 revoke all on function _contributor_for_key(text) from public, anon, authenticated;
 

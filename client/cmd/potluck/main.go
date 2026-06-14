@@ -31,6 +31,8 @@ func main() {
 		cmdRun(os.Args[2:])
 	case "moderate":
 		cmdModerate(os.Args[2:])
+	case "grant-moderator":
+		cmdGrantModerator(os.Args[2:])
 	case "search":
 		cmdSearch(os.Args[2:])
 	case "submit":
@@ -57,6 +59,7 @@ usage:
   potluck register [--name <handle>]   create your contributor key (one time)
   potluck run [flags]                  claim → run → submit, until --max-tasks or Ctrl-C
   potluck moderate [flags]             AI-moderate submitted (pending) tasks → accept/reject/escalate
+  potluck grant-moderator --contributor ID   (admin) grant/revoke moderator trust
   potluck search <query>               full-text search the open task board
   potluck submit --title T --prompt P  submit a task (lands 'pending' until AI-moderated)
   potluck usage                        show your Claude plan usage (session + week)
@@ -246,6 +249,35 @@ func cmdModerate(args []string) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+func cmdGrantModerator(args []string) {
+	fs := flag.NewFlagSet("grant-moderator", flag.ExitOnError)
+	contributor := fs.String("contributor", "", "contributor id to grant/revoke moderator trust")
+	revoke := fs.Bool("revoke", false, "revoke moderator trust instead of granting it")
+	_ = fs.Parse(args)
+
+	if !config.HasKey() {
+		fmt.Fprintln(os.Stderr, "register first: potluck register")
+		os.Exit(1)
+	}
+	if strings.TrimSpace(*contributor) == "" {
+		fmt.Fprintln(os.Stderr, "need --contributor <id>")
+		os.Exit(1)
+	}
+	key, err := config.LoadKey()
+	check(err)
+	level := 1
+	if *revoke {
+		level = 0
+	}
+	c, err := api.New().GrantTrust(context.Background(), key, *contributor, level)
+	check(err) // the RPC rejects non-admins with a clear "not authorized" message
+	verb := "granted moderator trust to"
+	if *revoke {
+		verb = "revoked moderator trust from"
+	}
+	fmt.Printf("✅ %s %s (%s) — trust_level now %d\n", verb, c.ID, orDefault(c.DisplayName, "anonymous"), c.TrustLevel)
 }
 
 func cmdSearch(args []string) {

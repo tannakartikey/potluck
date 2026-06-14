@@ -103,6 +103,17 @@ func Moderate(ctx context.Context, cl *api.Client, be backend.Backend, key, self
 		if opts.DryRun {
 			fmt.Printf("· %s %-46s %s\n", mark, short(t.Title), short1(reason))
 		} else if _, err := cl.Moderate(ctx, key, t.ID, verdict, reason); err != nil {
+			if strings.Contains(err.Error(), "not authorized") {
+				fmt.Println("\n⛔ your contributor is not a trusted moderator.")
+				fmt.Println("   moderation is restricted to vetted contributors (trust_level >= 1).")
+				hint := selfContributorID
+				if hint == "" {
+					hint = "<your-contributor-id>"
+				}
+				fmt.Printf("   ask an admin to run:  potluck grant-moderator --contributor %s\n", hint)
+				fmt.Println("   (or use --dry-run to preview verdicts without applying them)")
+				return nil
+			}
 			if strings.Contains(err.Error(), "cannot moderate your own submission") {
 				fmt.Printf("· skip   %-46s your own submission\n", short(t.Title))
 				continue

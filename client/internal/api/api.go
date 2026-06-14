@@ -49,6 +49,7 @@ func (c *Client) IsProd() bool { return c.BaseURL == defaultURL }
 type Contributor struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
+	TrustLevel  int    `json:"trust_level"`
 }
 
 type Subtask struct {
@@ -299,6 +300,22 @@ func (c *Client) Moderate(ctx context.Context, key, subtaskID, verdict, note str
 	var out Subtask
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("decode moderate: %w", err)
+	}
+	return &out, nil
+}
+
+// GrantTrust sets a contributor's moderator trust (level 1) or revokes it (level 0). The caller's
+// key must belong to an admin (trust_level >= 2). Server-enforced in the grant_trust RPC.
+func (c *Client) GrantTrust(ctx context.Context, key, contributorID string, level int) (*Contributor, error) {
+	data, err := c.rpc(ctx, "grant_trust", map[string]any{
+		"p_key": key, "p_contributor_id": contributorID, "p_level": level,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out Contributor
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("decode grant_trust: %w", err)
 	}
 	return &out, nil
 }

@@ -362,3 +362,33 @@ no-tools agent can't fetch. v0.5 should let a task **opt into specific tools, we
 
 Deferred to v0.5 — but it's what unlocks the "daily news / what-changed-this-week" tasks that
 motivated the project.
+
+## 23. Containerized execution sandbox — **[discussion; the enabler for tools + coding tasks]**
+
+Run each task's agent inside a **lightweight container / OS sandbox**, isolating execution from
+the host. This is the missing piece that makes the *dangerous* stuff safe, and it composes with
+#22 (web tools) and threat-model §10 (coding tasks).
+
+**What it unlocks:**
+- **Tool-enabled tasks, safely:** web (and eventually shell/code) can run because a compromised
+  agent is trapped in the sandbox — it can't read host files or use host credentials.
+- **Credential isolation (the key point):** mount only a **scoped / dedicated key** into the
+  container, never the contributor's real credentials — so a task that exfiltrates a key only
+  leaks a low-blast-radius one. Users could even point the container at a separate account.
+
+**Options (isolation strength vs friction):**
+- **Native OS sandbox** — macOS `sandbox-exec`/Seatbelt, Linux namespaces+seccomp / bubblewrap;
+  no daemon, lightest, OS-specific. (Codex already uses Seatbelt for its read-only sandbox;
+  Claude Code has egress isolation.) Lowest friction.
+- **Docker / OCI container** — ubiquitous and portable, but requires Docker installed (friction)
+  and a plain container is weaker than a VM.
+- **gVisor** (syscall interception) or **microVM / Firecracker** — strongest; heavier.
+
+**Design sketch (matches threat-model §10's published gate):** ephemeral per-task container,
+**default-deny egress** with a per-task allowlist (web tasks only), **read-only root FS** +
+tmpfs, **non-root**, **no host credential mounts** (scrub env; deny `~/.ssh` `~/.aws` etc.),
+CPU/mem/time caps, **fail-closed** if the sandbox can't start. **Tiering:** no-tools tasks can
+stay host-side (today); **tool/coding tasks require the container runner**.
+
+This is the foundation for lifting no-tools (#22) and opening coding tasks (§10). Deferred — but
+it's the key that unlocks the riskier, higher-value half of the project.

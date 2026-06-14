@@ -55,6 +55,7 @@ type Subtask struct {
 	Prompt         string          `json:"prompt"`
 	Acceptance     string          `json:"acceptance"`
 	TokenBudget    int             `json:"token_budget"`
+	Priority       int             `json:"priority"`
 	RequestedModel string          `json:"requested_model"`
 	ModelPolicy    string          `json:"model_policy"`
 	Attachments    json.RawMessage `json:"attachments"`

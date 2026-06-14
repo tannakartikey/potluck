@@ -298,6 +298,21 @@ contributor than the submitter.
 (GitHub-PR file-based submission stays an **optional** alternative for those who prefer it — not
 the primary path.) The CLI (`potluck submit`) and the website form both wrap `submit_task`.
 
+**Enforcing the guards with no server.** Our **SECURITY DEFINER RPCs *are* the server-side
+logic** — they run inside Postgres, so there's no separate backend to add. `submit_task` can, in
+the DB: (a) **rate-limit** (count the submitter's recent submissions, reject over a threshold);
+(b) **format-check** (length caps, required fields, acceptance present); and (c) **dedup** —
+normalize the text (lowercase, collapse whitespace/punctuation) → `dedupe_key = md5(normalized)`
+with a **UNIQUE constraint**, so the DB itself rejects exact / whitespace / case-variant
+duplicates and the RPC returns "duplicate" with the existing task's id. Near-duplicate
+(paraphrase) detection is the heavier, embeddings-based step (a later system task). Reserve
+`dedupe_key` when we build `submit_task`.
+
+**Priority.** `subtasks.priority` (higher = claimed first; `claim_subtask` orders by
+`priority desc, created_at`) lets **Potluck's own system tasks jump the queue** — moderation,
+task generation, and verification are donated-pool work that should run before ordinary tasks so
+the platform keeps itself moving.
+
 **Recurring tasks** ("every day, digest the news"; "weekly Rails changes"): a
 `task_templates` table (prompt + schedule + acceptance) whose instances are **materialized
 each period** by a scheduler — a GitHub Action cron for v0, or, on-brand, a **system task

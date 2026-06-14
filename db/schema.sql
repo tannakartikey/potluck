@@ -60,6 +60,7 @@ create table if not exists subtasks (
   acceptance       text,                              -- machine-checkable done-criteria (v1 quality lever)
   attachments      jsonb,                             -- optional image-input URLs (v1 = image INPUTS only)
   token_budget     int  not null default 5000,        -- ADVISORY; the runner enforces the real cap
+  priority         int  not null default 0,           -- higher = claimed first; system/Potluck tasks are high
   requested_model  text,                              -- e.g. 'claude-sonnet-4' or a tier like 'frontier'
   model_policy     text not null default 'any'
                    check (model_policy in ('any','min','exact')),
@@ -83,6 +84,7 @@ create index if not exists subtasks_status_idx   on subtasks(status);
 create index if not exists subtasks_category_idx on subtasks(category_slug);
 create index if not exists subtasks_tags_idx     on subtasks using gin(tags);
 create index if not exists subtasks_search_idx   on subtasks using gin(search);
+create index if not exists subtasks_priority_idx on subtasks(priority desc, created_at);
 
 -- ── results  (metadata + provenance; markdown BODY lives in Git) ─────────────
 create table if not exists results (
@@ -163,7 +165,7 @@ begin
   select * into picked from subtasks s
    where (s.status = 'open' or (s.status = 'leased' and s.lease_expires_at < now()))
      and (p_topics is null or s.category_slug = any(p_topics) or s.tags && p_topics)
-   order by s.created_at
+   order by s.priority desc, s.created_at
    for update skip locked
    limit 1;
   if not found then return null; end if;

@@ -116,8 +116,9 @@ potluck/
 > tracked in [`plans/mvp.md`](plans/mvp.md).
 
 ```bash
-# (future) install & log in with your own GitHub + provider account
-potluck login
+# (future) install, then register — generates a local secret key (no GitHub/OAuth login).
+# Your provider credentials stay on your machine; Potluck only stores a SHA-256 of your key.
+potluck register
 
 # bring your spare credits to whatever you care about
 potluck run --topics rails-news,ml-papers --budget 8000 --model claude-haiku-4-5

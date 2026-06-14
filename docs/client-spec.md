@@ -55,9 +55,13 @@ potluck run \
   --once                          # claim exactly one and exit
 ```
 
-Persisted in `~/.potluck/config.toml`. `potluck login` does GitHub OAuth (for the
-contributor JWT and attribution) and stores the provider credential reference
-locally (never uploaded).
+Persisted in `~/.potluck/config.json`. There is no `potluck login` and no GitHub
+OAuth. `potluck register` establishes the contributor identity: it generates a
+random secret key locally (`"potluck_"` + 32 random bytes hex, ≥ 24 chars), calls
+`register_contributor(p_key, p_display_name)`, and saves the secret to
+`~/.potluck/credentials` (mode 600, never uploaded). The server stores only the
+SHA-256 hex of the key. The provider credential reference is the contributor's own
+and stays local — Potluck never receives it.
 
 ## The claim / lease protocol
 
@@ -142,7 +146,9 @@ On submit, the runner reports (none of it a correctness or model proof — see
 Because safe mode is literally *one no-tools model call against a wrapped prompt*,
 the runner can also ship as a **Claude Code skill / tiny script** that:
 
-1. calls `claim_subtask` (HTTP POST to the PostgREST RPC with the user's JWT),
+1. calls `claim_subtask` (HTTP POST to the PostgREST RPC, passing the contributor's
+   secret key as `p_key` in the body; the `apikey`/`Authorization` header carries
+   only the project's public anon key, not a per-user identity),
 2. runs the returned `prompt` as a single no-tools completion,
 3. runs the output guard,
 4. calls `submit_result`.

@@ -1,9 +1,10 @@
 # Data Model
 
-> **v0 auth note:** writes are authenticated by a self-generated contributor
-> **key** (no OAuth / Supabase Auth); any `auth.uid()` references below are
-> superseded — see [`db/schema.sql`](../db/schema.sql) and [`AGENTS.md`](../AGENTS.md)
-> for the current key-gated RPCs. The entity shapes here remain accurate.
+> **v0 auth note:** contributor identity is a **self-generated secret key** (no
+> OAuth / Supabase Auth / per-user JWT). Reads are public via the anon key; all
+> writes go through key-gated `SECURITY DEFINER` RPCs that resolve the contributor
+> server-side from the presented key. See [`db/schema.sql`](../db/schema.sql) and
+> [`AGENTS.md`](../AGENTS.md) for the live RPCs.
 
 > **Discovery (v0.5):** `subtasks` also has `tags text[]` (GIN) + a generated `search`
 > tsvector (GIN) for full-text search, and a `categories` table (slug, label,
@@ -69,7 +70,8 @@ These constraints explain *why* the model looks the way it does:
 ```
                         +------------------+
                         |  contributors    |   identity + attribution
-                        |  (= auth.uid())  |   (GitHub OAuth)
+                        |  (gen_random_    |   (self-generated secret key;
+                        |   uuid() PK)     |    hash in contributor_keys)
                         +------------------+
                            |            |
             leased_by /    |            |  contributor_id
@@ -109,15 +111,16 @@ subtask come from" is reserved via `consensus_group` (and a future `tasks` table
 
 ### `contributors`
 
-One row per person who has logged in. The primary key equals `auth.uid()` from
-Supabase Auth (GitHub OAuth), so a contributor's identity, attribution, and RLS
-ownership are the same id.
+One row per contributor. The primary key is a plain `gen_random_uuid()` — there is
+no external auth provider. A contributor's identity is established by a
+**self-generated secret key** (see [`contributor_keys`](#contributor_keys) below):
+the runner generates the key locally on first run (`potluck register`) and calls
+`register_contributor()`, which mints this row. `display_name` is self-chosen.
 
 | Column         | Type          | Null | Default       | Notes |
 |----------------|---------------|------|---------------|-------|
-| `id`           | `uuid`        | no   | —             | PK. Equals `auth.uid()` (Supabase Auth / GitHub OAuth). |
-| `github_handle`| `text`        | yes  | —             | UNIQUE. Attribution + weak sybil signal (account age checked at onboarding). |
-| `display_name` | `text`        | yes  | —             | Shown on leaderboards / contributor pages. |
+| `id`           | `uuid`        | no   | `gen_random_uuid()` | PK. A plain random UUID (no `auth.uid()`, no external identity provider). |
+| `display_name` | `text`        | yes  | —             | Self-chosen. Shown on leaderboards / contributor pages. |
 | `created_at`   | `timestamptz` | no   | `now()`       | |
 
 **Reserved (v2, unused in v1, no later migration needed):**
@@ -130,10 +133,38 @@ ownership are the same id.
 
 **RLS:**
 
-- Public `SELECT` of `github_handle` / `display_name` (for attribution and
-  leaderboards).
-- `UPDATE` only of one's own row (`id = auth.uid()`).
-- `INSERT` of one's own row on first login (id must equal `auth.uid()`).
+- Public `SELECT` of `display_name` (for attribution and leaderboards).
+- **No client `INSERT`/`UPDATE` grant.** Rows are created only by the
+  `register_contributor()` `SECURITY DEFINER` RPC (the runner presents its
+  self-generated key; the row's `id` is server-assigned via `gen_random_uuid()`).
+
+---
+
+### `contributor_keys`
+
+The **secret** half of contributor identity. One row per contributor, holding only
+the **SHA-256 hash** of that contributor's self-generated key — never the key
+itself. The key is a bearer token: it is generated locally by the runner
+(`"potluck_" + 32 random bytes hex`, `>= 24` chars), and it leaves the machine only
+inside RPC request bodies over TLS. The server computes
+`encode(digest(p_key,'sha256'),'hex')` and stores that hash here.
+
+| Column           | Type          | Null | Default | Notes |
+|------------------|---------------|------|---------|-------|
+| `contributor_id` | `uuid`        | no   | —       | PK. FK → `contributors(id)` (`on delete cascade`). |
+| `key_hash`       | `text`        | no   | —       | UNIQUE. SHA-256 hex of the contributor's secret key. Hashes only — the key is never stored. |
+| `created_at`     | `timestamptz` | no   | `now()` | |
+
+**RLS:** enabled with **no policy and no grant** — the table is unreachable from
+the client (anon never gets even `SELECT`). It is touched **only** by the
+`SECURITY DEFINER` RPCs: `register_contributor()` writes the hash, and the internal
+`_contributor_for_key(p_key)` (REVOKEd from anon, never callable directly) resolves
+a key to a `contributor_id`. Every write RPC takes `p_key` as its first argument and
+resolves the contributor through this table; the resolved id — not client input,
+never `auth.uid()` — is what gets written to `leased_by` / `contributor_id`.
+
+> An asymmetric sign-with-private-key scheme is a **reserved future hardening**, not
+> what ships: today the key is a bearer secret hashed at rest.
 
 ---
 
@@ -168,11 +199,15 @@ public board the static site renders. One row = one atomic work unit.
 
 **RLS:**
 
-- Anon `SELECT` (the public board).
+- Anon `SELECT` only (the public board).
 - **No broad client `UPDATE`.** `status`, `leased_by`, and `lease_expires_at`
-  flip *only* via the `claim_subtask()` RPC (below) or a maintainer role.
-- `INSERT` (task creation) is maintainer-only in v1 (contributors cannot create
-  tasks until trust levels land — see roadmap).
+  flip *only* via `SECURITY DEFINER` RPCs — `claim_subtask()` (below),
+  `submit_result()`, `release_lease()`, and `moderate_task()` — each of which sets
+  `leased_by` to the contributor resolved from the presented key, never from client
+  input. There is deliberately no client `UPDATE` grant.
+- **No client `INSERT` grant.** Task creation goes through `submit_task()` (any
+  contributor with a key; the task lands `pending` until an AI moderator accepts it
+  via `moderate_task()`). `submitted_by` is set server-side from the key.
 
 ---
 
@@ -186,7 +221,7 @@ the publisher GitHub Action, after which `artifact_md` can be pruned.
 |-----------------------|---------------|------|---------------|-------|
 | `id`                  | `uuid`        | no   | `gen_random_uuid()` | PK. |
 | `subtask_id`          | `uuid`        | no   | —             | FK → `subtasks(id)`. |
-| `contributor_id`      | `uuid`        | no   | —             | FK → `contributors(id)`. Must equal `auth.uid()` at insert. |
+| `contributor_id`      | `uuid`        | no   | —             | FK → `contributors(id)`. Set server-side by `submit_result()` to the contributor resolved from the presented key (not client input). |
 | `artifact_md`         | `text`        | no   | —             | Produced markdown. Mirrored to Git by the publisher Action; may be pruned afterward. |
 | `reported_model`      | `text`        | no   | —             | **Self-declared** model that produced this result; not verified. WHO/WHAT/WHEN — not correctness, not a model proof. |
 | `self_described_model`| `text`        | yes  | —             | Optional: what the model said when asked to name itself. Weak anomaly signal only. |
@@ -207,17 +242,19 @@ the publisher GitHub Action, after which `artifact_md` can be pruned.
 
 **RLS:**
 
-- Anon `SELECT` (the public commons / "what your credits built" feed).
-- `INSERT` only WHERE **all** of:
-  - `contributor_id = auth.uid()`, **and**
-  - a matching **active lease** exists on the subtask held by this contributor,
+- Anon `SELECT` only (the public commons / "what your credits built" feed).
+- **No client `INSERT` grant.** Results are written *only* by the
+  `submit_result(p_key, …)` `SECURITY DEFINER` RPC, which enforces **all** of:
+  - `contributor_id` is set to the contributor resolved from `p_key` (the caller
+    cannot write on behalf of anyone else), **and**
+  - a matching **active lease** exists on the subtask held by that contributor,
     **and**
-  - `output_guard_passed = true`.
+  - `output_guard_passed = true` (else the RPC raises and refuses to publish).
 
-This insert policy is the join between identity, the lease, and the safety guard.
-It is why a contributor cannot submit a result for a subtask they did not claim,
+These checks are the join between identity, the lease, and the safety guard. They
+are why a contributor cannot submit a result for a subtask they did not claim,
 cannot submit on behalf of someone else, and cannot publish output that failed the
-local guard.
+local guard. (The RPC also flips the subtask to `done` in the same call.)
 
 ---
 
@@ -281,18 +318,23 @@ Claiming work is the one place concurrency matters, and it is handled by a singl
 lazy (handled inside the same query).
 
 ```sql
-claim_subtask(p_topics text[]) RETURNS subtasks   -- SECURITY DEFINER
+claim_subtask(p_key text, p_topics text[], p_lease_minutes int)   -- SECURITY DEFINER
+  RETURNS subtasks
+  -- resolve the caller from the presented key (raises on an unknown key):
+  --   cid := _contributor_for_key(p_key);
   SELECT * FROM subtasks
    WHERE (status = 'open'
           OR (status = 'leased' AND lease_expires_at < now()))   -- lazy self-heal
-     AND (p_topics IS NULL OR category_slug = ANY(p_topics))
-   ORDER BY created_at
+     AND (p_topics IS NULL
+          OR category_slug = ANY(p_topics)                       -- primary category, OR
+          OR tags && p_topics)                                   -- any tag (array overlap)
+   ORDER BY priority DESC, created_at
    FOR UPDATE SKIP LOCKED                                         -- atomic, non-colliding
    LIMIT 1;
   -- then UPDATE the row:
-  --   status = 'leased', leased_by = auth.uid(),
-  --   lease_expires_at = now() + interval '15 min'
-  -- RETURN it.
+  --   status = 'leased', leased_by = cid,                       -- the key's contributor
+  --   lease_expires_at = now() + (p_lease_minutes || ' min')    -- default 15
+  -- RETURN it (or NULL if the queue is empty for these topics).
 ```
 
 Two properties to note as a contributor:
@@ -305,9 +347,12 @@ Two properties to note as a contributor:
   process required. The 15-minute window is the maximum time a crashed lease ties
   up a row.
 
-A symmetric `complete_subtask()` / result-submission RPC (or the insert policy
-above) flips the subtask to `done` and writes the `results` row in one step, again
-as `SECURITY DEFINER` so the client never needs a broad `UPDATE` grant.
+The symmetric `submit_result(p_key, …)` RPC writes the `results` row and flips the
+subtask to `done` in one step, again as `SECURITY DEFINER` so the client never needs
+a broad `INSERT`/`UPDATE` grant. `release_lease(p_key, p_subtask_id, p_failed)`
+returns a task to the pool (re-`open` on giving up, `failed` on a reported failure;
+v0 discards partial work). Every one of these RPCs resolves the contributor from
+`p_key` server-side — never from `auth.uid()` or client-supplied ids.
 
 ---
 
@@ -344,11 +389,13 @@ reads existing columns:
   unlock as validated work accumulates.
 - `reputation` is the headline leaderboard number.
 
-v1's only anti-abuse posture is: GitHub OAuth identity (account age as a weak,
-free sybil signal) + RLS that lets a contributor insert only their own results and
-claim only via the RPC + a small, trusted contributor set. This scales exactly as
-far as the contributor set is trusted, which is why reputation/trust-levels are
-the first thing added when the network opens to strangers.
+v1's only anti-abuse posture is: self-generated-key identity (cheap to mint, so a
+weak sybil signal on its own) + writes funneled entirely through key-gated
+`SECURITY DEFINER` RPCs (a contributor's results and leases are stamped with the
+contributor resolved from their key, never client input) + a small, trusted
+contributor set. This scales exactly as far as the contributor set is trusted,
+which is why reputation/trust-levels are the first thing added when the network
+opens to strangers.
 
 ---
 
@@ -378,7 +425,9 @@ A few model-level facts that matter when reading the schema:
   it is safe *only* because policies are correct on every exposed table. A single
   table with RLS off, or one over-permissive policy, leaks the whole commons. A
   mandatory pre-launch test exercises the PostgREST API **as the anon role** to
-  confirm anon cannot write `results` or mutate `subtasks.status`.
+  confirm anon cannot write `results` or mutate `subtasks.status`. The
+  `contributor_keys` table has no policy and no grant at all, so anon cannot read
+  the stored key hashes either.
 
 - **Task `prompt` is untrusted DATA, never instructions.** The runner wraps it
   inside a fixed, project-controlled system prompt that forbids following embedded
@@ -390,9 +439,12 @@ A few model-level facts that matter when reading the schema:
   is the denial-of-wallet defense, and it works precisely because the contributor's
   machine holds the real cap.
 
-- **Privileged transitions go through `SECURITY DEFINER` RPCs only.** Clients are
-  never granted broad `UPDATE`. The two transitions that exist in v1 (claim,
-  complete) are RPCs.
+- **Privileged transitions go through key-gated `SECURITY DEFINER` RPCs only.**
+  Clients are never granted broad `INSERT`/`UPDATE`; anon gets `SELECT` only. Every
+  write RPC (`register_contributor`, `claim_subtask`, `submit_result`,
+  `release_lease`, `submit_task`, `moderate_task`) takes the contributor's secret
+  `p_key` as its first argument and resolves the contributor server-side — so
+  `leased_by` / `contributor_id` are stamped from the key, never from client input.
 
 For the full security rationale, threat model, and the coding-task sandbox gate
 (deferred, out of v1 scope), see the security documentation. This file covers only

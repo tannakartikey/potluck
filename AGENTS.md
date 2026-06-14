@@ -117,7 +117,8 @@ experience.**
 
 ## Status
 
-Pre-alpha. **Reads are live.** The contributor login (GitHub OAuth → JWT) and the
+Pre-alpha. **Reads are live.** The contributor write path (`potluck register`
+self-generates a secret key → `register_contributor` → key-gated RPCs) and the
 reference runner (a single static **Go** binary) are being built — see
 `plans/mvp.md`, `docs/client-spec.md`, and the RPC/endpoint definitions in
 `db/schema.sql` / `docs/api-spec.md`.

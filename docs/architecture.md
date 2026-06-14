@@ -18,14 +18,14 @@ on contributors' own machines under their own accounts.
             │     4. output guard (secrets)   │                                             │
             │     5. submit_result(...)     ──┘                                             │
             └───────────────┬───────────────────────────────────────────────────▲──────────┘
-                            │ HTTPS (PostgREST + RPC, contributor's JWT)          │
+                            │ HTTPS (PostgREST + RPC; write RPCs carry p_key)     │
                             ▼                                                     │
    ┌───────────────────────────────────── SUPABASE (free tier) ──────────────────┼──────────┐
    │   Postgres  =  QUEUE + INDEX + PROVENANCE     (RLS on every table)           │          │
    │     • subtasks (the work queue / public board)                              │          │
    │     • results  (metadata + provenance; body pointer)                        │          │
-   │     • contributors (identity via GitHub OAuth)                              │          │
-   │   Auto REST API (PostgREST)  +  Auth (JWT)  =  the "thin API" we don't run   │          │
+   │     • contributors (identity = self-generated key; hash in contributor_keys)│          │
+   │   Auto REST API (PostgREST)  +  anon role  =  the "thin API" we don't run   │          │
    └───────────────┬─────────────────────────────────────────────────────────────┼──────────┘
                    │ anon key (public, RLS-protected) read                        │ batch commit
                    ▼                                                              │ (1 GH Action)
@@ -47,7 +47,7 @@ the free tier from pausing.
 |---|---|---|
 | **Runner CLI** (`potluck`) | contributor's machine | Claim a lease, wrap the untrusted task as data, run the contributor's own agent in safe mode under a local budget, guard the output, submit the result. The runner — not the task — is the safety/budget enforcement point. |
 | **Postgres (Supabase)** | managed free tier | Queue + index + provenance. RLS is the whole access model. Three tables in v1. |
-| **PostgREST + Auth** | managed (Supabase) | The "thin API" — auto-generated REST + `SECURITY DEFINER` RPCs + GitHub-OAuth JWTs. No server we operate. |
+| **PostgREST + RLS** | managed (Supabase) | The "thin API" — auto-generated REST + key-gated `SECURITY DEFINER` RPCs. Reads use the public anon role; writes resolve the contributor from the presented secret key. No server we operate. |
 | **Static site** | GitHub Pages | Public board, category pages, the "what your credits built" feed, submit form. Reads PostgREST directly with the public anon key. |
 | **Results repo** | public Git repo | Canonical artifact store: markdown, one file per result. Diffable, forkable, free, outlives the project. |
 | **Publisher Action** | GitHub Actions (scheduled) | Batch-mirror accepted `results.artifact_md` → repo files; write back `repo_path`/`commit_sha`/`permalink`; keep-alive ping. |
@@ -109,11 +109,12 @@ The site is keyless in the sense that matters: it ships only the **public anon
 key**, which is safe **only because RLS is correct on every exposed table**.
 
 ```
-  anon (the website, logged-out)     →  SELECT subtasks / results / contributors   ✅
-                                     →  any write                                  ❌ (no policy)
-  authenticated (logged-in runner)   →  claim_subtask()/submit_result() RPCs       ✅
-                                     →  INSERT results (own + active lease + guard) ✅
-                                     →  UPDATE subtasks.status directly             ❌ (no policy)
+  anon (everyone — site + runner)    →  SELECT subtasks / results / contributors   ✅
+                                     →  SELECT contributor_keys (key hashes)        ❌ (no grant)
+                                     →  any direct INSERT/UPDATE                     ❌ (no policy/grant)
+                                     →  claim_subtask()/submit_result() RPCs (p_key) ✅ (key-gated)
+  via write RPC (resolves the key)   →  RPC sets leased_by / contributor_id server- ✅
+                                        side from _contributor_for_key(p_key)
   maintainer (service role)          →  author subtasks                            ✅
 ```
 
@@ -127,7 +128,7 @@ confirms anon cannot write. See [threat-model](threat-model.md) §6 and
 
 | Piece | Service | Cost |
 |---|---|---|
-| Database + API + Auth | Supabase free tier | $0 |
+| Database + API (PostgREST + RPCs) | Supabase free tier | $0 |
 | Website | GitHub Pages | $0 |
 | Artifact store | public GitHub repo | $0 |
 | Publisher / keep-alive | GitHub Actions | $0 (within free minutes) |

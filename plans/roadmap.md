@@ -66,9 +66,9 @@ are the security and compliance spine of the project.
   |      anti-injection system prompt         |      |   - contributors            |
   |   3. invoke OWN agent, text-only no-tools |      |   RLS ON every table        |
   |      under HARD local token budget        |      |   PostgREST = "thin API"    |
-  |   4. pre-publish output guard (secrets)   |      |   Supabase Auth = JWT       |
+  |   4. pre-publish output guard (secrets)   |      |   key-gated DEFINER RPCs    |
   |   5. sign provenance manifest             |      +--------------+--------------+
-  |   6. POST result pointer  --------------- | ---> (RLS-gated INSERT)            |
+  |   6. submit_result() key-gated RPC ------ | ---> (SECURITY DEFINER write)     |
   +------------------------------------------+                     |
                                                                    v
    STATIC GitHub Pages site  <---- reads PostgREST ----  scheduled GitHub Action
@@ -136,34 +136,44 @@ runner, no LLM judge, no challenge window.
 
 **Central deliverables**
 
-- Live Supabase: three tables (`subtasks`, `results`, `contributors`), **RLS ON
-  for all**, the `claim_subtask(p_topics text[])` RPC (`SECURITY DEFINER`).
+- Live Supabase: tables (`subtasks`, `results`, `contributors`,
+  `contributor_keys`), **RLS ON for all**, the
+  `claim_subtask(p_key text, p_topics text[], p_lease_minutes int)` RPC
+  (`SECURITY DEFINER`).
 - The RPC is the concurrency + security primitive:
 
   ```sql
-  -- claim_subtask(p_topics text[]) RETURNS subtasks   (SECURITY DEFINER)
+  -- claim_subtask(p_key text, p_topics text[], p_lease_minutes int)
+  --   RETURNS subtasks   (SECURITY DEFINER)
+  -- cid := _contributor_for_key(p_key);   -- resolve contributor server-side
   SELECT * FROM subtasks
    WHERE (status='open' OR (status='leased' AND lease_expires_at < now()))
-     AND (p_topics IS NULL OR category_slug = ANY(p_topics))
-   ORDER BY created_at
+     AND (p_topics IS NULL OR category_slug = ANY(p_topics) OR tags && p_topics)
+   ORDER BY priority DESC, created_at
    FOR UPDATE SKIP LOCKED          -- atomic non-colliding claim
    LIMIT 1;
-  -- then UPDATE: status='leased', leased_by=auth.uid(),
-  --              lease_expires_at = now() + interval '15 min';  RETURN row.
+  -- then UPDATE: status='leased', leased_by=cid,   -- never client input
+  --              lease_expires_at = now() + (p_lease_minutes || ' min')::interval;  RETURN row.
   -- expired-lease branch = lazy self-healing; no background worker needed.
   ```
 
-- Supabase Auth wired to GitHub OAuth; contributor JWT = `auth.uid()` =
-  `contributors.id`.
+- Self-key contributor identity: the runner generates a random secret locally
+  (`potluck register`) and calls `register_contributor(p_key, p_display_name)`;
+  the server stores **only** the SHA-256 hash of the key in `contributor_keys`.
+  Every write RPC takes `p_key` and resolves the contributor by hash
+  server-side — there is no login, no per-user JWT, no `auth.uid()`.
 - Publisher GitHub Action: **batch**-commits accepted results to the public git
   repo (never commit-per-result — respect GitHub write rate limits), sets
   `repo_path` / `commit_sha` / `permalink` on the result row.
 
 **Runner CLI (`potluck run`) deliverables**
 
-- GitHub-OAuth login; stores only the contributor's session, never a provider
-  credential.
-- Claims a leased task via `claim_subtask()`.
+- `potluck register`: on first run generates a random secret key locally
+  (`potluck_` + 32 random bytes hex) and calls `register_contributor(p_key,
+  p_display_name)`; the server stores only the key's SHA-256. The secret stays on
+  the machine (mode `600`) and is presented as a bearer token in RPC bodies over
+  TLS — never a provider credential, never a pooled key.
+- Claims a leased task via `claim_subtask(p_key, ...)`.
 - Wraps untrusted task `prompt` as **DATA** inside a fixed, project-controlled
   anti-injection system prompt (forbids following embedded instructions,
   forbids revealing local/system context, constrains output format).
@@ -172,14 +182,16 @@ runner, no LLM judge, no challenge window.
   refuses any task whose declared budget exceeds the local cap.
 - Client-side guards: per-task token budget, `--max-turns 1`, output-size cap,
   wall-clock timeout, clear terminal SUCCESS/FAILED states. On
-  failure/budget-exceed it **releases the lease** (status → `open`) for another
+  failure/budget-exceed it **releases the lease** via `release_lease(p_key,
+  p_subtask_id, p_failed)` (status → `open`; v0 discards partial work) for another
   contributor to retry from scratch.
 - Pre-publish **output guard**: scans the artifact for secret patterns (API
   keys, tokens, private-key blocks), local paths/usernames, and policy
   violations before upload.
 - Signs a provenance manifest (model id, contributor id, UTC timestamp,
-  `prompt_hash`, `token_count`) and POSTs the result pointer back via the
-  RLS-gated insert.
+  `prompt_hash`, `token_count`) and submits the result via the key-gated
+  `submit_result(p_key, ...)` RPC (which sets `contributor_id` server-side from
+  the key and flips the subtask to `done`) — there is no direct client INSERT.
 
 **Content deliverables**
 
@@ -268,7 +280,10 @@ anti-abuse machinery that was honestly deferred in v1.
   **cannot create tasks**; privileges unlock as validated contributions
   accumulate.
 - **Sybil/spam gate:** proof-of-work-lite on account creation / task claiming +
-  per-identity rate limits (in addition to GitHub-OAuth account-age signal).
+  per-identity rate limits and exact-duplicate dedupe. There is **no** OAuth
+  account-age signal to lean on (identity is a self-generated key, trivially
+  re-mintable), so anti-abuse rests on rate-limiting/dedupe at the RPCs plus a
+  curated trusted-contributor set rather than account provenance.
 - **Moderation / auto-screening of new-submitter task submissions** — submitted
   task prompts are themselves the injection vector for the whole network, so
   low-trust submissions are queued for review (or LLM-screened) before fan-out;
@@ -281,7 +296,7 @@ anti-abuse machinery that was honestly deferred in v1.
   programmatically and assigned probabilistically (so colluders can't fingerprint
   them), used only to update reputation and trigger spot-checks.
 
-**Exit criteria:** a stranger can sign up, is correctly rate/trust-limited, can
+**Exit criteria:** a stranger can register a key, is correctly rate/trust-limited, can
 contribute results, and cannot poison the queue or corpus without detection;
 challenge windows and gold tasks are operating.
 
@@ -367,7 +382,7 @@ atomic subtasks.
 | Phase | Ships                                                        | Verification           | Trust/anti-abuse                  | Tools/scope        |
 |-------|-------------------------------------------------------------|------------------------|-----------------------------------|--------------------|
 | 0     | Mock board + frozen schema (with reserved cols) + RLS draft | none                   | none                              | text-only          |
-| 1     | Live 3-table DB, RLS, RPC, runner CLI, publisher Action     | provenance, unverified | GitHub OAuth + RLS, small set     | text-only no-tools |
+| 1     | Live 3-table DB, RLS, RPC, runner CLI, publisher Action     | provenance, unverified | self-key + RLS, small set         | text-only no-tools |
 | 2     | Categories, live feed, contributor pages, API-key path, attestation | provenance only | same + attestation                | text-only no-tools |
 | 3a    | Trust levels, PoW-lite, submission moderation, gold tasks   | Tier 0 challenge window| trust levels + rate limits        | text-only no-tools |
 | 3b    | Sandboxed runner + egress proxy + gate tests                | (carried from 3a)      | (carried)                         | **coding, gated**  |

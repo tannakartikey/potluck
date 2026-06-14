@@ -160,11 +160,11 @@ Each threat below lists **impact**, **who bears it**, **v1 mitigation**, and an 
 
 **v1 mitigations (thin, and we say so):**
 
-- **GitHub-OAuth identity.** Contributors authenticate via GitHub; account age and public footprint are a weak, free uniqueness signal.
-- **RLS insert-only-own-rows.** A contributor can `INSERT` a result only where `contributor_id = auth.uid()`, a matching active lease exists, and `output_guard_passed = true`. Claims happen only through the `claim_subtask()` RPC (atomic, `FOR UPDATE SKIP LOCKED`) — no broad client `UPDATE`.
+- **Self-generated-key identity (no account-age signal).** There is no GitHub-OAuth or Supabase-Auth login: a contributor's identity is a secret key their runner generates locally (`potluck register` → `register_contributor()`; the server stores only the key's SHA-256 hash). That means there is **no account age or public footprint** to lean on — anti-sybil is correspondingly thinner. What it buys instead: writes are **key-gated RPCs** (the server resolves the contributor from the presented key, never from client input), reads are **RLS read-only**, and `submit_task()` carries DB-level guards (≤20 submissions/hour and exact-duplicate rejection via a normalized `dedupe_key`).
+- **RPC-only writes, contributor resolved from the key.** There is no broad client `INSERT`/`UPDATE` grant. A result row is written only by the `submit_result()` RPC, which sets `contributor_id` to the contributor resolved server-side from the presented key (via `_contributor_for_key()`), requires a matching active lease, and requires `output_guard_passed = true`. Claims happen only through the `claim_subtask()` RPC (atomic, `FOR UPDATE SKIP LOCKED`), which sets `leased_by` the same way.
 - **Small, trusted/invite-ish contributor set.** v1 is run among known contributors, which is what makes thin anti-sybil defenses acceptable.
 
-**Residual (honest).** An *authenticated* contributor can still submit junk in v1. This scales only as far as the contributor set is trusted. The real defenses are **deferred and documented as the gate before opening the network**: Discourse/OSM-style trust levels (new accounts get small daily claim limits and cannot create tasks), proof-of-work-lite, per-identity rate limits, moderation/auto-screening of *new-submitter task submissions* (the injection vector for the whole network), gold/honeypot tasks, and N-of-M redundancy. See §9. Free-tier DoS is bounded today only by RLS write policies + the small contributor set; per-identity write rate limits land with trust levels.
+**Residual (honest).** An *authenticated* contributor can still submit junk in v1, and — because identity is just a self-generated key with no account-age cost — a determined actor can mint many keys cheaply. This scales only as far as the contributor set is trusted. The real defenses are **deferred and documented as the gate before opening the network**: Discourse/OSM-style trust levels (new accounts get small daily claim limits and cannot create tasks), proof-of-work-lite, per-identity rate limits, moderation/auto-screening of *new-submitter task submissions* (the injection vector for the whole network), gold/honeypot tasks, and N-of-M redundancy. See §9. Free-tier DoS is bounded today only by RLS read-only-plus-RPC writes + `submit_task()`'s per-hour rate limit & dedupe + the small contributor set; broader per-identity write rate limits land with trust levels.
 
 ### 4.6 Privacy & copyright on derived artifacts
 
@@ -240,30 +240,38 @@ If you are evaluating whether to contribute *today*: you are joining a small, tr
 
 The static site ships a **public anon key** in client code. That is safe **only if every exposed table has correct RLS policies.** One table with RLS off, or one over-permissive policy, leaks data or allows public writes — a well-documented Supabase failure mode, and the single platform-killing bug for this architecture.
 
-Policy shape (v1, three tables):
+Identity here is **not** a login: there is no GitHub OAuth, no Supabase Auth, and no per-user JWT. A contributor's identity is a secret key their runner generates locally (`potluck register` → `register_contributor(p_key)`); the server stores only its SHA-256 hash in `contributor_keys` (RLS-enabled, no policy and no grant — reachable only via the `SECURITY DEFINER` RPCs). The anon key in the client merely selects the read-only `anon` Postgres role; it is **not** a per-user identity. Every write RPC takes the key as its first argument and resolves the contributor server-side via `_contributor_for_key(p_key)` (REVOKEd from anon — never callable directly).
+
+Policy shape (v1):
 
 ```
-  contributors   anon SELECT of handle/display_name (attribution/leaderboards)
-                 self-only UPDATE
-  subtasks       anon SELECT (public board)
-                 status flips ONLY via claim_subtask() RPC + maintainer
-                 NO broad client UPDATE
-  results        anon SELECT (public commons)
-                 INSERT only WHERE contributor_id = auth.uid()
-                              AND a matching active lease exists
-                              AND output_guard_passed = true
+  contributors     anon SELECT of display_name (attribution/leaderboards)
+                   NO client UPDATE; rows created only by register_contributor() RPC
+  contributor_keys NO anon SELECT, NO grant (RLS on, no policy)
+                   holds only the SHA-256 of each key; touched only by the RPCs
+  subtasks         anon SELECT (public board)
+                   status flips ONLY via claim_subtask()/submit_result()/
+                   submit_task()/moderate_task() RPCs — NO broad client UPDATE
+  results          anon SELECT (public commons)
+                   NO client INSERT — written ONLY by the submit_result() RPC,
+                   which sets contributor_id = the contributor resolved from the
+                   presented key, requires a matching active lease, and requires
+                   output_guard_passed = true
 ```
+
+RLS grants the `anon` role **SELECT only**; there is deliberately no client `INSERT`/`UPDATE` grant, so all writes flow through the key-gated RPCs that set `contributor_id`/`leased_by` from the resolved key — never from client input.
 
 The atomic claim primitive prevents two contributors from racing on the same task and self-heals crashed leases:
 
 ```
-  claim_subtask(p_topics) — SECURITY DEFINER
+  claim_subtask(p_key, p_topics) — SECURITY DEFINER
+    cid := _contributor_for_key(p_key);   -- resolve contributor from the key
     SELECT ... FROM subtasks
       WHERE status='open' OR (status='leased' AND lease_expires_at < now())
-      ORDER BY created_at
+      ORDER BY priority DESC, created_at
       FOR UPDATE SKIP LOCKED       -- atomic, non-colliding claim
       LIMIT 1;
-    -- then mark leased, set leased_by = auth.uid(), lease_expires_at = now()+15min
+    -- then mark leased, set leased_by = cid, lease_expires_at = now()+15min
 ```
 
 **Mandatory pre-launch gate:** before any demo, run the PostgREST API **as the anon role** and confirm anon **cannot** write results or mutate subtask status. This is the #1 security-review item. RLS is not one control among many here — it is the entire security model for a keyless static frontend.
@@ -298,8 +306,8 @@ A contributor can sign a fabricated result. Signing supports auditing and attrib
 | 6 | Subscription "individual use" drift | Medium | Contributor | Mitigated: API-key path default; per-contributor volume cap |
 | 7 | Misinformation / low-quality result | Medium–High (task-dependent) | Commons | Partial: provenance + machine-checkable acceptance criteria; `unverified` label. Consensus deferred |
 | 8 | Cost-griefing (denial of wallet) | Medium | Contributor | Mitigated client-side: hard budget, --max-turns 1, debounce, caps, timeout |
-| 9 | Sybil / spam / corpus poisoning | Medium | Commons | Thin: GitHub OAuth + RLS insert-own-only + small trusted set. Trust levels deferred |
-| 10 | Free-tier DB DoS | Low–Medium | Infra | Thin: RLS write policies + small set. Per-identity rate limits deferred |
+| 9 | Sybil / spam / corpus poisoning | Medium | Commons | Thin: self-generated keys (no account-age signal) + key-gated RPC-only writes + small trusted set + submit_task per-hour rate limit & dedupe. Trust levels deferred |
+| 10 | Free-tier DB DoS | Low–Medium | Infra | Thin: RLS read-only + RPC-only writes + submit_task per-hour rate limit + small set. Broader per-identity rate limits deferred |
 | 11 | Copyright / privacy on derived artifacts | Low–Medium | Contributor + commons | Mitigated: fair-use scoping + attestation + AI-origin label; heuristic leak guard |
 
 "Mitigated" means the v1 control substantially addresses it. "Partial"/"Thin" means real residual risk remains and the stronger defense is deferred — see §9.

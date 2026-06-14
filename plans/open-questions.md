@@ -27,9 +27,11 @@ Coding tasks are a separate, much later track behind real sandboxing.
 
 ## 4. Backend — **[locked: Supabase free tier]**
 
-The only option bundling the five things needed on a real free tier with zero
-servers we operate: auto REST (PostgREST), RLS, Auth (JWTs RLS can read),
-Realtime, Storage. Neon + Data API is the documented fallback; the schema is in
+The only option bundling the things needed on a real free tier with zero
+servers we operate: auto REST (PostgREST), RLS, SECURITY DEFINER RPCs (which carry
+all our key-gated write logic — no separate backend), Realtime, Storage.
+(Contributor identity is a self-generated key, not Supabase Auth — see #8.) Neon +
+Data API is the documented fallback; the schema is in
 PostgREST shape so a move is a base-URL + policy change. (Railway: no free tier.
 Turso: no native RLS. Firebase: non-SQL/proprietary, conflicts with open-source.)
 
@@ -132,16 +134,36 @@ per-inference ZK proofs.
 
 ---
 
-## 8. Identity / auth — **[recommended: GitHub OAuth]**
+## 8. Identity / auth — **[locked: self-generated key]**
 
-Via Supabase Auth. Gives identity + attribution + a weak, free sybil signal
-(account age, public footprint) in one onboarding step. Reserved
+A contributor's identity is a **self-generated secret key** — no GitHub OAuth, no
+Supabase Auth, no per-contributor JWT, no login. On first run the runner (`potluck
+register`) generates a random secret **locally** (`"potluck_" + 32 random bytes hex`,
+≥ 24 chars) and calls `register_contributor(p_key, p_display_name)`. The server stores
+**only the SHA-256 hex** of the key (`encode(digest(p_key,'sha256'),'hex')`) in the
+`contributor_keys` table (RLS-enabled, no policy/grant → reachable only via the
+SECURITY DEFINER RPCs, so the hashes stay hidden). The secret never leaves the machine
+except inside RPC request bodies over TLS — it's a **bearer token**. The `contributors`
+row's `id` is a plain `gen_random_uuid()` and `display_name` is self-chosen (there is no
+`github_handle`). All writes go through key-gated SECURITY DEFINER RPCs that take `p_key`
+and resolve the contributor server-side via the internal `_contributor_for_key(p_key)`;
+`leased_by` / `contributor_id` are always set from that resolution, never from client
+input. Reads are public (the read-only `anon` key; RLS `select using (true)`). Reserved
 `reputation`/`trust_level` columns carry the future graduated-trust system.
+
+**GitHub OAuth (via Supabase Auth) was considered but rejected:** it adds an external
+dependency and onboarding complexity (the user pushed back on OAuth), and the weak sybil
+signal it bought isn't worth a hard login dependency at friends-scale. An **asymmetric
+sign-with-key scheme** (the runner keeps a private key, the server verifies signatures
+instead of holding a bearer token) is **reserved as future hardening**, not what shipped —
+today the key is a bearer secret, not a signing key.
 
 ## 9. Sybil / spam defense in v1 — **[recommended: thin, and say so]**
 
-GitHub OAuth + RLS (insert only your own results, claim only via RPC) + a small,
-trusted/invite-ish contributor set. An authenticated contributor *can* still
+Self-generated contributor key + RLS (anon gets SELECT only; all writes — claim,
+submit, moderate — go through key-gated SECURITY DEFINER RPCs that set
+`contributor_id`/`leased_by` from the presented key, never from client input) + a
+small, trusted/invite-ish contributor set. A registered contributor *can* still
 submit junk in v1 — this scales only as far as the set is trusted. Trust levels,
 PoW-lite, per-identity rate limits, gold/honeypot tasks, and task-submission
 moderation are the **gate before opening to strangers**

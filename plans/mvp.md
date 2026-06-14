@@ -19,7 +19,9 @@ If that one loop works and feels good, everything else is incremental.
 - [ ] Create the Supabase project; capture `SUPABASE_URL` + anon key (public) and
       keep the access token in `.env` (gitignored, already set up).
 - [ ] Apply [`db/schema.sql`](../db/schema.sql) (SQL editor or `supabase db push`).
-- [ ] Enable GitHub OAuth in Supabase Auth.
+- [ ] Confirm `register_contributor(p_key, p_display_name)` stores only the
+      SHA-256 hex of the key in `contributor_keys` (no policy/grant → unreachable
+      except via the `SECURITY DEFINER` RPCs).
 - [ ] **Mandatory gate:** hit the PostgREST API **as the anon role** and confirm
       anon can `SELECT` but **cannot** insert a result or mutate a subtask's
       status. This is the #1 security check. (See [threat-model](../docs/threat-model.md) §6.)
@@ -31,8 +33,10 @@ If that one loop works and feels good, everything else is incremental.
       sized for a single sub-5k-token call.
 
 ### C. Runner (start as a Claude Code skill) — *~1–2 days*
-- [ ] `potluck login` → GitHub OAuth → store JWT locally; never upload the
-      provider credential.
+- [ ] `potluck register` → generate a random secret key locally (`potluck_` +
+      32 random bytes hex) → `register_contributor(p_key, p_display_name)` (the
+      server stores only the SHA-256); key saved to `~/.potluck/credentials`.
+      Never upload the provider credential.
 - [ ] `claim_subtask(topics)` via PostgREST RPC.
 - [ ] Wrap the untrusted `prompt` as **data** inside the fixed system prompt;
       run **one no-tools turn** on the contributor's own Claude

@@ -185,8 +185,10 @@ code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); p
 .term-body { margin: 0; padding: 1.3rem 1.4rem; overflow-x: auto; font-family: var(--mono); font-size: .9rem; line-height: 1.85; color: #e8dccb; }
 .c-comment { color: #8a755b; } .c-cmd { color: #74cf9b; font-weight: 600; } .c-str { color: #e8b86a; }
 
-/* fit guide */
-.fit-guide { margin-top: clamp(2.5rem, 5vw, 3.8rem); }
+/* submit + fit guide */
+.submit-lead { font-size: 1.15rem; font-weight: 600; color: var(--ink); margin: 1.9rem 0 1.1rem; }
+.ph { color: var(--faint); font-style: italic; }
+.fit-guide { margin-top: .2rem; }
 .fit-lede { font-size: 1.22rem; line-height: 1.6; color: var(--ink); max-width: 78ch; margin: 0 0 1.7rem; }
 .fit-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.3rem; }
 @media (max-width: 760px) { .fit-cols { grid-template-columns: 1fr; } }

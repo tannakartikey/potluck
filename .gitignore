@@ -8,6 +8,9 @@
 secrets/
 .potluck-secrets*/
 
+# ── Private ideas / notes — NEVER commit (owner-only thinking) ──────────
+.private/
+
 # ── Supabase ───────────────────────────────────────────────────────────
 .supabase/
 supabase/.branches/

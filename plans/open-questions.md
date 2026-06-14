@@ -726,3 +726,38 @@ for field-level search/filter.
 output is the natural *next* quality lever for the agent-cache flagship — reserve the column now (done),
 add per-type schemas + validation when the corpus is worth querying by field. Pairs with consensus
 (#6) since structured outputs are also what make N-of-M agreement tractable.
+
+## 31. Queue fairness, rate-limiting & anti-abuse guardrails — **[partly shipped; the rest are future, all DB-level]**
+
+So no single client dominates the board and no task abuses anyone. All of these are enforceable in the
+SECURITY DEFINER RPCs (no server) — consistent with the architecture.
+
+**Already shipped (v0):**
+- **Per-contributor submission cap:** `submit_task` enforces **≤20 submissions/hour** per contributor.
+- **Exact-duplicate rejection:** normalized `dedupe_key` + a UNIQUE index.
+- **Moderation gate:** submissions land `pending`; only a **trusted moderator** (`trust_level ≥ 1`)
+  flips to `open` (#27); a contributor can't moderate their own.
+- **Denial-of-wallet defense:** advisory `token_budget` per task + the runner's **hard local cap**.
+- **No double-claim:** `claim_subtask` uses `FOR UPDATE SKIP LOCKED`.
+
+**To add (future, prioritized):**
+- **Anti-domination caps (the user's ask):** beyond the hourly limit, add **daily/weekly** caps and a
+  cap on **simultaneously open+pending** tasks per contributor (one person can't fill the board), all
+  **trust-scaled** (higher trust → higher ceilings; brand-new keys get small limits).
+- **Queue-fairness surfacing:** `claim_subtask` should round-robin / weight by submitter so claimers
+  see a **diverse mix**, not one submitter's flood; optional per-category flood caps.
+- **Claim fairness:** cap concurrent leases per contributor; short lease cooldowns to stop one runner
+  hogging the queue.
+- **Reputation-weighted priority:** trusted contributors' tasks surface a bit higher (ties to the
+  reserved `reputation` / `validated_streak`).
+- **Polite external fetching (prerequisite for ANY web/tool task, #22, Phase 3b):** when tasks can
+  fetch external sources, be a good web citizen — **per-domain rate limits and a global concurrency
+  cap across ALL contributors** (a shared counter/lease table, since the danger is the *collective*
+  hammering one site), **randomized delay + backoff**, **robots.txt** respect, an identifiable UA, and
+  hard ceilings. The whole community must never DoS a single site. (This is the generic mechanism; any
+  specific application of it gets its own scrutiny + ToS/legal review before shipping.)
+- **Spam/junk → reputation:** repeatedly-rejected submissions lower a contributor's standing and
+  tighten their caps.
+
+These are the gate before opening submissions to untrusted strangers (roadmap Phase 3a), layered on the
+shipped basics above.

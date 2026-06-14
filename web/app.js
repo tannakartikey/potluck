@@ -10,6 +10,13 @@ const SRC = cfg
 const $  = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const fmt = (n) => (Number(n) || 0).toLocaleString("en-US");
+// Hero stat counters: full commas while they're readable (74,014 · 340,000), then abbreviate once
+// they'd get wide enough to unbalance the row (1,200,000 → "1.2M" · "1.5B"). Keeps the style intact at any size.
+const compact = (n) => {
+  n = Number(n) || 0;
+  if (n < 1_000_000) return n.toLocaleString("en-US");
+  return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+};
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 const liveUrl   = (table, q) => `${SRC.base}/${table}?${q}`;
@@ -40,7 +47,7 @@ function animateCount(el, to) {
   const ease = (x) => 1 - Math.pow(1 - x, 3);
   function tick(now) {
     const p = Math.min(1, (now - t0) / dur);
-    el.textContent = fmt(Math.round(from + (to - from) * ease(p)));
+    el.textContent = compact(Math.round(from + (to - from) * ease(p)));
     if (p < 1) requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

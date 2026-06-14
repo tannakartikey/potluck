@@ -392,3 +392,25 @@ stay host-side (today); **tool/coding tasks require the container runner**.
 
 This is the foundation for lifting no-tools (#22) and opening coding tasks (§10). Deferred — but
 it's the key that unlocks the riskier, higher-value half of the project.
+
+## 24. Correcting / superseding a result (no edits, only supersedes) — **[discussion]**
+
+Results are **append-only and immutable** by design — RLS lets a contributor INSERT only their
+own result and never UPDATE/DELETE (integrity + provenance; you can't silently rewrite the
+commons). So a wrong / partial / low-quality result isn't *edited* — it's **superseded** by a
+new one. The standard append-only correction model:
+
+- **Supersede, don't mutate:** a new result points at the one it replaces (reserve
+  `results.supersedes uuid`); the **canonical** result shown for a subtask is the current best,
+  while the original stays in history for audit/provenance.
+- **Re-open for redo:** a result flagged as wrong/partial sends the subtask back to `open` (or a
+  `needs_redo` state); the next contributor's result supersedes. A trust-gated
+  `flag_result(p_key, …)` RPC drives this — ties to the deferred challenge-window (threat-model
+  §9) and the reserved `verification_status` / `consensus_group`.
+- **Which one is canonical?** v0-simplest: the newest superseding result wins (or a
+  maintainer/verified one). Later: votes / N-of-M consensus pick the best, spam-protected by
+  trust levels.
+
+So the correction path is **flag → re-open → redo → supersede**, never edit — keeping the
+immutability/provenance guarantees intact while still letting the commons self-correct. Reserve
+the `supersedes` pointer now (non-breaking); build flag/challenge with the verification phase.

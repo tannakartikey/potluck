@@ -862,3 +862,31 @@ hours, people already run them continuously, and the newest generation is design
 We don't know providers' actual anomaly parameters. So this is "be conservative and prepared," not
 "fix a known bug." But because a suspended subscription is a serious harm to a contributor, we lean
 cautious. Ship jitter + backoff early; the rest is future.
+
+## 35. Infer recurrence from a one-off submission (intake intelligence) — **[parked: future; feeds #32]**
+
+**Idea (the user's):** when a task comes in, Potluck should work out — on its own, even if the
+submitter never said so — whether it's really a **recurring/scheduled** thing, and set that up
+automatically. Example: someone submits "summarize this blog post." That post is one-off, but the
+**blog** keeps publishing — so Potluck should add the blog to a watch-list and schedule future digests,
+not just do the single post and forget the source.
+
+**How it'd work:** an **intake-intelligence pass** (part of, or right after, moderation) reads the
+submission and extracts the underlying **source/entity** (the blog's feed, the project's release line,
+the standards body) and a likely **cadence**. If it's confident the source is a recurring one, it
+registers a recurring **trigger** — which is exactly the mechanism in **#32** (source-watcher → auto
+`submit_task`). One-off submissions thus seed the standing digest layer.
+
+**Judgement calls it must get right:**
+- **Recurring vs one-off:** "digest this one arXiv paper" is a one-off (maybe watch the *author/topic*,
+  maybe not); "summarize today's Rails release notes" clearly implies watching the Rails release line.
+  Be conservative — better to under-subscribe than spam the queue.
+- **Confirmation:** surface the inferred watch to the submitter / a moderator to approve, at least
+  early on; don't silently create standing jobs.
+- **Dedup + limits:** don't register a watch for a source already watched; honor #31 fairness/rate
+  limits and #34 polite-fetching.
+- Leans on **#30** structured source metadata (entity/source/feed) to identify the recurring thing and
+  on **#33**'s facets to keep the resulting corpus queryable.
+
+**Recommendation:** build #32's trigger mechanism first; add this inference layer on top once there's a
+corpus to learn the patterns from. Parked.

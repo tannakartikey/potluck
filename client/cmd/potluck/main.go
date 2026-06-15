@@ -59,6 +59,12 @@ func main() {
 		cmdUsage(os.Args[2:])
 	case "status":
 		cmdStatus(os.Args[2:])
+	case "__hook":
+		cmdHook(os.Args[2:]) // internal: PreToolUse deny-all-except-curated hook (v2 sandbox)
+	case "__tools-server":
+		cmdToolsServer(os.Args[2:]) // internal: MCP curated-tools stdio server (v2 sandbox)
+	case "__broker":
+		cmdBroker(os.Args[2:]) // internal: credential broker (v2 sandbox sidecar)
 	case "version", "-v", "--version":
 		fmt.Println("potluck", version)
 	case "help", "-h", "--help":

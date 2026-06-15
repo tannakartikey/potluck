@@ -43,6 +43,7 @@ func TestWrapExecHostPassthrough(t *testing.T) {
 // TestAuthMountsForFileOnly is the load-bearing guarantee: we mount ONLY the single auth
 // file, never the whole ~/.codex / ~/.claude directory (which holds session history).
 func TestAuthMountsForFileOnly(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "") // no API key → the subscription token-file mount path
 	home := t.TempDir()
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0o700); err != nil {
@@ -70,6 +71,29 @@ func TestAuthMountsForFileOnly(t *testing.T) {
 	// The host source must be a file path, not the directory itself.
 	if strings.HasPrefix(m, codexDir+":") {
 		t.Errorf("mounted the whole .codex directory, not just the auth file: %s", m)
+	}
+	if len(env) != 1 || env[0] != "OPENAI_API_KEY" {
+		t.Errorf("env forward = %v, want [OPENAI_API_KEY]", env)
+	}
+}
+
+// TestAuthMountsForSkipsMountWhenKeyPresent is the load-bearing fix: when an API key is set,
+// the credential FILE is NOT mounted (so a task's read-only shell — Codex — has no token file
+// to read); we forward the key instead. Closes the empirically-proven Codex token-read leak.
+func TestAuthMountsForSkipsMountWhenKeyPresent(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-present")
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// auth.json EXISTS, but because the API key is set it must NOT be mounted.
+	if err := os.WriteFile(filepath.Join(codexDir, "auth.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mounts, env := AuthMountsFor("codex", home)
+	if len(mounts) != 0 {
+		t.Errorf("with OPENAI_API_KEY set, the token file must NOT be mounted, got %v", mounts)
 	}
 	if len(env) != 1 || env[0] != "OPENAI_API_KEY" {
 		t.Errorf("env forward = %v, want [OPENAI_API_KEY]", env)

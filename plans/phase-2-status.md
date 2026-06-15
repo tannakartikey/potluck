@@ -2,6 +2,46 @@
 
 **Date:** 2026-06-15 · **Branch:** `phase-2-sandbox` · **Owner был AFK; built autonomously.**
 
+> ## UPDATE (later same day) — curated tools are now the DEFAULT, opened to everyone
+> Per owner decision (pre-launch, no users yet), `potluck run` now **defaults** to the curated
+> tool surface and degrades gracefully instead of failing closed:
+> - **API key + Docker + image → broker + hardened container** (strongest). *Built; live e2e
+>   through the broker still UNVERIFIED — no API key on this machine.*
+> - **Subscription / no Docker → HOST curated** — the agent's only tools are fetch_url +
+>   read_document (no shell/file), so the credential is safe without a container backstop
+>   (weaker tier; worst case for a subscription token = rate-limit). **VERIFIED live e2e:** the
+>   real binary spawns claude + the curated MCP server + deny hook; fetch_url returned a page
+>   title, read_document returned a sandboxed doc, **Bash was blocked**.
+> - `--no-tools` = the strict v1 escape hatch.
+>
+> **Robustness fix:** when potluck runs *inside* a Claude Code session, harness env
+> (`CLAUDECODE`, `CLAUDE_CODE_*`) + a deferred-tools plugin can pollute the agent; we now scrub
+> that env and deny the harness tool-entrypoints + steer the model to call the curated tools
+> directly.
+>
+> **Codex (red-teamed + docs/source read, per the verify-the-weakness rule):**
+> - PROVEN: Codex's read-only sandbox reads files anywhere on disk on macOS (`~/.ssh`,
+>   `~/.codex/auth.json`) and emits them verbatim — the docs' "workspace-only reads" is false on
+>   macOS (Linux `bwrap` may differ; untested). A *realistic* injection (instruction in task
+>   text + safety preamble) did **not** leak; a direct command did. So protection is soft
+>   (model + output guard + network-off), not a hard sandbox boundary.
+> - FIXED: never mount the credential file when an API key is set (closes the read-only-shell
+>   token read); broker generalized to OpenAI (placeholder key for Codex's API-key lane).
+> - Codex env-scrub controls (`core`/`exclude`/`include_only`) are **empirically broken in
+>   v0.139.0** (only `inherit=none` works, strips PATH) — and moot anyway (broker + container
+>   handle it). `execpolicy` `.rules` (a command allow/deny policy we currently *disable* with
+>   `--ignore-rules`) is the remaining lever to apply — TODO.
+> - Honest residual (FAQ line): **Codex on a subscription token** keeps a read-only shell that
+>   can read the token file; mitigated by network-off + output guard, not eliminated. Use an API
+>   key or Claude for the strongest isolation. *(Codex is supported, labelled the weaker lane —
+>   not blocked.)*
+>
+> The original status below describes the opt-in `--phase2` build; it remains accurate for that
+> (now the explicit "strongest lane, fail-closed") path.
+
+---
+
+
 **What Phase 2 is.** Move from "safe because the agent has no tools" (v1) to "safe because the
 agent acts inside a box that contains it" (v2): give the agent a SMALL set of curated,
 project-implemented tools — `fetch_url` + `read_document`, **never raw shell** — behind a

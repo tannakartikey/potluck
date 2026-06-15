@@ -11,14 +11,16 @@ import (
 	"strings"
 )
 
-// ClaudeCode runs a task via the Claude Code CLI in headless, no-tools "safe mode":
+// ClaudeCode runs a task via the Claude Code CLI in headless, no-tools "safe mode".
 //
-//	claude -p <prompt> --output-format json --allowed-tools "" --system-prompt <safety> [--model M] [--max-budget-usd X]
-//
-// SAFE MODE = empty allow-list (no Bash/Edit/Read/WebFetch/etc.), a project-controlled
-// system prompt that replaces the agent default, and execution in a temp dir so no
-// local CLAUDE.md / project files are auto-included. (Known v0 limitation: the user's
-// global ~/.claude memory may still load; hardening that is tracked in the threat model.)
+// IMPORTANT: tools are denied EXPLICITLY (--tools "" + --strict-mcp-config +
+// --disallowed-tools <every built-in>). We deliberately do NOT use --allowed-tools "":
+// an empty allow-list does NOT disable tools (it is additive), which previously left
+// Bash/Read/WebFetch live on the contributor's host. CLI flags are fragile and
+// version-dependent, so they are defense-in-depth only — the real containment boundary
+// is the sandbox container (see plans/prelaunch.md §0). A project-controlled system
+// prompt replaces the agent default, and execution runs in a temp dir so no local
+// CLAUDE.md / project files are auto-included.
 type ClaudeCode struct {
 	Bin    string
 	Docker *DockerConfig // when set, run the CLI inside a locked-down container (#23)
@@ -46,17 +48,20 @@ type ccResult struct {
 	ModelUsage map[string]ccModelUsage `json:"modelUsage"`
 }
 
-func (c *ClaudeCode) Run(ctx context.Context, req Request) (*Response, error) {
-	if req.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
-		defer cancel()
-	}
+// noToolsDenyList enumerates every built-in Claude Code tool, denied explicitly. This is
+// defense-in-depth, NOT the boundary: see the type doc above and plans/prelaunch.md §0.4.
+const noToolsDenyList = "Bash Edit Write Read NotebookEdit WebFetch WebSearch Task Glob Grep KillShell BashOutput TodoWrite SlashCommand"
 
+// claudeArgs builds the headless no-tools "safe mode" argv. Extracted so the
+// safety-critical flags are unit-testable (TestClaudeArgsNoTools) — the prior inline
+// version had zero coverage, which is how the broken --allowed-tools "" survived.
+func claudeArgs(req Request) []string {
 	args := []string{
 		"-p", req.Prompt,
 		"--output-format", "json",
-		"--allowed-tools", "", // SAFE MODE: empty allow-list => no tools
+		"--tools", "", // empty available-tool set
+		"--strict-mcp-config",                 // ignore any user-configured MCP servers
+		"--disallowed-tools", noToolsDenyList, // explicit deny of every built-in tool
 	}
 	if req.System != "" {
 		args = append(args, "--system-prompt", req.System)
@@ -67,6 +72,17 @@ func (c *ClaudeCode) Run(ctx context.Context, req Request) (*Response, error) {
 	if req.MaxUSD > 0 {
 		args = append(args, "--max-budget-usd", fmt.Sprintf("%.4f", req.MaxUSD))
 	}
+	return args
+}
+
+func (c *ClaudeCode) Run(ctx context.Context, req Request) (*Response, error) {
+	if req.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
+		defer cancel()
+	}
+
+	args := claudeArgs(req)
 
 	prog, runArgs := wrapExec(c.Docker, c.Bin, args)
 	cmd := exec.CommandContext(ctx, prog, runArgs...)

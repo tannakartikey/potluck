@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -64,5 +65,33 @@ func TestParseClaudeJSON(t *testing.T) {
 func TestUsageTotal(t *testing.T) {
 	if got := (Usage{InputTokens: 100, OutputTokens: 25}).Total(); got != 125 {
 		t.Errorf("Total() = %d, want 125", got)
+	}
+}
+
+// TestClaudeArgsNoTools is the regression guard for the platform-killing bug: the runner
+// must DENY tools explicitly, never rely on the additive (and inert) --allowed-tools "".
+func TestClaudeArgsNoTools(t *testing.T) {
+	args := claudeArgs(Request{Prompt: "do the task", System: "safety preamble", Model: "haiku"})
+	joined := strings.Join(args, " ")
+
+	// The broken mechanism must never come back.
+	if slices.Contains(args, "--allowed-tools") {
+		t.Errorf("argv must NOT use --allowed-tools (an empty allow-list does not disable tools); got %v", args)
+	}
+	// The real deny flags must all be present.
+	for _, want := range []string{"--tools", "--strict-mcp-config", "--disallowed-tools"} {
+		if !slices.Contains(args, want) {
+			t.Errorf("safe-mode flag %q missing from argv: %v", want, args)
+		}
+	}
+	// Every dangerous built-in must appear in the deny list.
+	for _, tool := range []string{"Bash", "Read", "Write", "Edit", "WebFetch", "WebSearch", "Task"} {
+		if !strings.Contains(joined, tool) {
+			t.Errorf("deny list missing dangerous tool %q", tool)
+		}
+	}
+	// The untrusted prompt must travel as the -p value (DATA position), never the system prompt.
+	if i := slices.Index(args, "-p"); i < 0 || i+1 >= len(args) || args[i+1] != "do the task" {
+		t.Errorf("prompt not passed as the -p value: %v", args)
 	}
 }

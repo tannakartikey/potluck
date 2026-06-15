@@ -330,7 +330,11 @@ $$;
 revoke all on contributors, contributor_keys, categories, subtasks, results from anon, authenticated;
 
 -- public, read-only access (NOTE: contributor_keys is intentionally excluded)
-grant select on contributors, categories, subtasks, results to anon;
+grant select on categories, subtasks, results to anon;
+-- contributors: ATTRIBUTION COLUMNS ONLY. Never trust_level / reputation / validated_streak
+-- — those are privilege signals, and a table-level grant let anon `select=*` them and
+-- enumerate moderators/admins. Postgres enforces column privileges even under USING(true).
+grant select (id, display_name) on contributors to anon;
 
 -- the key-authenticated write path is exposed as RPCs (the key is the auth)
 grant execute on function register_contributor(text, text)                                   to anon;

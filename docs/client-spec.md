@@ -32,7 +32,7 @@ adapter interface, several implementations:
 
 | Backend | How it's invoked | Notes |
 |---|---|---|
-| **Claude Code (headless)** | `claude -p --allowedTools "" --max-turns 1 --model <id>` | Runs on the contributor's Claude subscription or API. Safe mode = empty allowed-tools + single turn. |
+| **Claude Code (headless)** | `claude -p --tools "" --strict-mcp-config --disallowed-tools "<built-ins>" --model <id>` | Runs on the contributor's Claude subscription or API. Safe mode = all tools explicitly denied (empty allowed-tools is a no-op) + the container boundary. |
 | **Codex CLI** | analogous headless, no-tools invocation | OpenAI subscription/API. |
 | **Anthropic / OpenAI API (SDK)** | direct single completion call, no tools | **Recommended default for unattended/batch** — automation via API is unambiguously permitted; the runner reads the model id from the response. |
 | **Any OpenAI-compatible endpoint** | base-URL + key the user supplies | GLM, MiniMax, local models, etc. Potluck judges by outcome, so any agent is welcome. |
@@ -116,8 +116,8 @@ enforcement point:
 | Guard | Purpose |
 |---|---|
 | Per-task hard token cap | Refuse/abort above `--budget`. |
-| `--max-turns 1` | Kill agentic looping. |
-| Output-size cap | Bound runaway generation. |
+| (no tools) | No agentic tool-loop is possible. |
+| Output-size cap | Bound runaway generation. *(TODO: not yet implemented.)* |
 | Wall-clock timeout | Bound a stuck run. |
 | Duplicate-call debounce | Break repeated-call loops. |
 | Clear SUCCESS / FAILED terminal state | No ambiguous "still going" (a large cost-saver in agent systems). |

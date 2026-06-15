@@ -27,7 +27,7 @@ These are non-negotiable across all phases of the project. If a change would bre
 
 1. **Your account, your machine, your key.** Potluck never receives, stores, proxies, or pools any API key, OAuth token, or login credential. You authenticate locally with your own provider account; only finished public artifacts and their metadata cross the network. Pooling or sharing keys is permanently out of scope — not just deferred for v1.
 
-2. **Text-only, no-tools safe mode is a hard property of the runner.** The contributor CLI launches the agent with no tools enabled (for the Claude Code path: `--allowedTools "" --max-turns 1`). This is a security invariant, not a default you casually flip. With zero tools, the agent cannot run shell, read/write files, fetch arbitrary URLs, or call MCP servers.
+2. **Text-only, no-tools safe mode is a hard property of the runner.** The contributor CLI launches the agent with all tools **explicitly denied** (Claude Code path: `--tools "" --strict-mcp-config --disallowed-tools "<every built-in>"`). Note an empty `--allowedTools ""` does **not** disable tools — it is an additive allow-list — so it is deliberately not used. CLI flags are version-dependent, so the **locked-down container is the real boundary**; the deny-flags are defense-in-depth. This is a security invariant, not a default you casually flip. With tools denied, the agent cannot run shell, read/write files, fetch arbitrary URLs, or call MCP servers.
 
 3. **Row-Level Security (RLS) on every table from creation.** The static site and CLI talk to the database directly using a public anon key; RLS is the *entire* security model. Privileged state transitions happen only through `SECURITY DEFINER` RPCs — never through broad client `UPDATE` grants.
 
@@ -80,7 +80,7 @@ Each threat below lists **impact**, **who bears it**, **v1 mitigation**, and an 
 
 - **Task text is confined to the DATA role.** The runner wraps the untrusted task inside a fixed, project-controlled system prompt that (i) states the agent's role and limits, (ii) forbids following instructions embedded in the task text, and (iii) forbids revealing local or system context. Task text never occupies the system/developer role.
 - **Minimal context.** The agent is fed *only* the wrapped task — no environment dump, no prior conversation, no secrets. There is very little to leak because very little is in scope.
-- **Pre-publish output guard (client-side).** Before any artifact is uploaded, the runner scans it for likely secret patterns (API keys, token blobs, private-key blocks), local paths/usernames, and policy-violating content. A result that fails the guard is not published (`output_guard_passed = false`; RLS blocks the insert).
+- **Pre-publish output guard (client-side).** Before any artifact is uploaded, the runner scans it for likely secret patterns (API keys, token blobs, private-key blocks) and local paths/usernames. (It does **not** scan for "policy-violating" / toxic content — there is no such check; that risk is unmitigated by the guard.) A failing result is not published: `submit_result` **raises** unless `output_guard_passed = true` — an RPC check (defense-in-depth alongside the client guard), not an RLS policy.
 
 **Residual (honest).** Output scanning is heuristic and will miss novel secrets or cleverly-encoded leaks. Anti-injection system prompts reduce but do not eliminate jailbreaks. The content-harm risk is *real even with zero host access* and is borne by you — see §4.2. Treat the safe-mode guarantee as "your machine and credentials are safe; your account's *reputation* and the artifact's *quality* are not fully guaranteed."
 
@@ -138,7 +138,7 @@ Each threat below lists **impact**, **who bears it**, **v1 mitigation**, and an 
   Per-task token budget       Contributor-set hard cap (e.g. 5k–10k). The
     (hard cap)                runner REFUSES any task whose declared budget
                               exceeds the local cap.
-  --max-turns 1               Kills agentic looping — one model turn, done.
+  No tools + single -p call   No agentic tool-loop is possible (tools are denied).
   Max-iteration / call cap    Bounds tool/iteration calls (moot at 0 tools,
                               but kept as a structural guard).
   Duplicate-call debounce     Breaks repeated-call loops.
@@ -210,8 +210,8 @@ Concretely, for the Claude Code execution path:
 
 ```
   potluck run \
-    --allowedTools ""      # NO tools: no Bash, Read/Write, WebFetch, MCP
-    --max-turns 1          # one model turn — no agentic looping
+    --tools "" --strict-mcp-config --disallowed-tools "<every built-in>"   # tools DENIED
+    # (an empty --allowedTools does NOT disable tools; the container is the real boundary)
     --budget <local-cap>   # hard token cap; task's declared budget is advisory only
     # task text injected as DATA inside a fixed, project-controlled system prompt
     # output guard runs before any upload; failing the guard blocks publication
@@ -312,7 +312,7 @@ A contributor can sign a fabricated result. Signing supports auditing and attrib
 | 5 | Content harm under contributor's key | Medium | Contributor | Partial: anti-injection prompt + output guard; ToS risk surfaced to you |
 | 6 | Subscription "individual use" drift | Medium | Contributor | Mitigated: API-key path default; per-contributor volume cap |
 | 7 | Misinformation / low-quality result | Medium–High (task-dependent) | Commons | Partial: provenance + machine-checkable acceptance criteria; `unverified` label. Consensus deferred |
-| 8 | Cost-griefing (denial of wallet) | Medium | Contributor | Mitigated client-side: hard budget, --max-turns 1, debounce, caps, timeout |
+| 8 | Cost-griefing (denial of wallet) | Medium | Contributor | Partial: no tools (no agentic loop) + 5-min wall-clock + advisory token-budget skip. A hard per-run $ cap is a TODO |
 | 9 | Sybil / spam / corpus poisoning | Medium | Commons | Thin, improving: self-generated keys (no account-age signal) + key-gated RPC-only writes + small trusted set + submit_task per-hour rate limit & dedupe + **trusted-only moderation** (a minted key submits but can't self-approve; only `trust_level >= 1` flips to `open`, with `moderated_by` audit). Deeper trust levels (claim limits, N-of-M moderation) deferred |
 | 10 | Free-tier DB DoS | Low–Medium | Infra | Thin: RLS read-only + RPC-only writes + submit_task per-hour rate limit + small set. Broader per-identity rate limits deferred |
 | 11 | Copyright / privacy on derived artifacts | Low–Medium | Contributor + commons | Mitigated: fair-use scoping + attestation + AI-origin label; heuristic leak guard |

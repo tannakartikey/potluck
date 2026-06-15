@@ -106,7 +106,7 @@ potluck/
 ├── web/                             # static site, live at kartikey.dev/potluck (board + gallery read the DB)
 │   └── data/                        # sample JSON fallback (real reads via config.js)
 ├── scripts/                         # apply-schema.sh · use-staging.sh
-├── .github/workflows/               # Pages deploy + release (checksummed binaries on tag)
+├── .github/workflows/               # CI (go build/test/vet) + Pages deploy
 └── LICENSE                          # MIT
 ```
 

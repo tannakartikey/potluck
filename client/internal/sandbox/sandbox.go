@@ -1,10 +1,10 @@
-// Package sandbox builds and orchestrates the Phase-2 (v2) hardened, fail-closed execution
-// sandbox: an ephemeral, non-root, read-only, capability-dropped container with DEFAULT-DENY
-// egress, behind which the agent may use the curated tools (fetch_url, read_document) and
-// reach the provider ONLY through the credential broker. Per plans/prelaunch.md §0 and
-// docs/threat-model.md §10, the container is the load-bearing boundary — so this path FAILS
-// CLOSED: if the daemon, image, or isolation can't be verified up, the runner refuses rather
-// than silently falling back to the host. stdlib-only (shells out to `docker`).
+// Package sandbox builds and orchestrates the hardened, fail-closed execution sandbox: an
+// ephemeral, non-root, read-only, capability-dropped container in which the agent does curated
+// work (native web research + read_document, NO shell/file). Egress is open (the agent
+// researches the open web); the load-bearing boundary is HOST isolation — no shell, no file
+// access, no credential reach (the broker injects the key; the agent holds a placeholder). This
+// path FAILS CLOSED: if the daemon, image, or key can't be verified up, the runner refuses
+// rather than silently downgrading. stdlib-only (shells out to `docker`).
 package sandbox
 
 import (
@@ -17,10 +17,12 @@ const (
 	// DefaultImage carries both the agent CLI and the potluck binary (MCP tools server + hook).
 	DefaultImage = "potluck-sandbox:phase2"
 
-	// EgressNetwork is --internal (NO route to the internet); the agent joins only this.
-	// PublicNetwork is an ordinary bridge (has the internet); ONLY the broker joins it too.
-	EgressNetwork = "potluck-egress"
-	PublicNetwork = "potluck-public"
+	// SandboxNetwork is a user-defined bridge (HAS internet) that the agent + broker share, so
+	// the agent reaches the broker by name AND can research the open web (native WebSearch/
+	// WebFetch). Egress is open by design now; host safety comes from the container hardening +
+	// no shell/file tools, not from locking the network. (The credential is still protected: the
+	// agent holds only a placeholder; the broker injects the real key.)
+	SandboxNetwork = "potluck-net"
 
 	// BrokerName/BrokerPort are fixed because the runner processes tasks sequentially and
 	// tears the sandbox down between tasks; the agent reaches the broker by container name.
@@ -41,7 +43,7 @@ type CmdRunner func(name string, args ...string) ([]byte, error)
 // AgentSpec describes the hardened agent container.
 type AgentSpec struct {
 	Image     string
-	Network   string   // the --internal egress network to join (default EgressNetwork)
+	Network   string   // the bridge network to join (default SandboxNetwork)
 	Name      string   // container name (for teardown); optional
 	Memory    string   // default "2g"
 	CPUs      string   // default "2"
@@ -60,7 +62,7 @@ func AgentRunArgs(s AgentSpec, bin string, cmdArgs []string) []string {
 	}
 	network := s.Network
 	if network == "" {
-		network = EgressNetwork
+		network = SandboxNetwork
 	}
 	mem := s.Memory
 	if mem == "" {
@@ -81,7 +83,7 @@ func AgentRunArgs(s AgentSpec, bin string, cmdArgs []string) []string {
 		"--read-only",       // immutable rootfs
 		"--cap-drop", "ALL", // no Linux capabilities
 		"--security-opt", "no-new-privileges",
-		"--network", network, // DEFAULT-DENY egress: --internal net, only the broker is reachable
+		"--network", network, // shared bridge with the broker; open egress for native web research
 		"--pids-limit", strconv.Itoa(pids),
 		"--memory", mem,
 		"--cpus", cpus,
@@ -103,10 +105,9 @@ func AgentRunArgs(s AgentSpec, bin string, cmdArgs []string) []string {
 	return append(run, cmdArgs...)
 }
 
-// BrokerRunArgs builds the `docker run …` argv for the broker sidecar: it joins the egress
-// network (reachable by the agent) and holds the REAL key (passed by NAME via -e, never
-// written to disk). It is itself hardened (read-only, non-root, cap-drop). It is later
-// connected to the public network so it — and only it — can reach the provider.
+// BrokerRunArgs builds the `docker run …` argv for the broker sidecar: it joins the shared
+// sandbox network (reachable by the agent + the internet) and holds the REAL key (passed by
+// NAME via -e, never written to disk). It is itself hardened (read-only, non-root, cap-drop).
 func BrokerRunArgs(image, realKeyEnvName, upstream string) []string {
 	if image == "" {
 		image = DefaultImage
@@ -114,7 +115,7 @@ func BrokerRunArgs(image, realKeyEnvName, upstream string) []string {
 	args := []string{
 		"run", "-d", "--rm", "--init",
 		"--name", BrokerName,
-		"--network", EgressNetwork,
+		"--network", SandboxNetwork,
 		"--user", sandboxUser,
 		"--read-only",
 		"--cap-drop", "ALL",
@@ -148,28 +149,22 @@ func Preflight(run CmdRunner, image string, haveRealKey bool) error {
 	return nil
 }
 
-// EnsureNetworks creates the egress (--internal) and public networks if absent. Idempotent:
+// EnsureNetworks creates the shared sandbox bridge network if absent. Idempotent:
 // "already exists" is not an error.
 func EnsureNetworks(run CmdRunner) error {
-	if _, err := run("docker", "network", "create", "--internal", EgressNetwork); err != nil && !alreadyExists(err) {
-		return fmt.Errorf("create egress network: %w", err)
-	}
-	if _, err := run("docker", "network", "create", PublicNetwork); err != nil && !alreadyExists(err) {
-		return fmt.Errorf("create public network: %w", err)
+	if _, err := run("docker", "network", "create", SandboxNetwork); err != nil && !alreadyExists(err) {
+		return fmt.Errorf("create sandbox network: %w", err)
 	}
 	return nil
 }
 
-// StartBroker launches the broker sidecar and connects it to the public network so it (and
-// only it) can reach the provider. The agent never joins the public network.
+// StartBroker launches the broker sidecar on the shared network (reachable by the agent + the
+// provider). It injects the real key so the agent only ever holds a placeholder.
 func StartBroker(run CmdRunner, image, realKeyEnvName, upstream string) error {
 	_, _ = run("docker", "rm", "-f", BrokerName) // clear any stale sidecar
 	args := BrokerRunArgs(image, realKeyEnvName, upstream)
 	if out, err := run("docker", args...); err != nil {
 		return fmt.Errorf("start broker: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	if out, err := run("docker", "network", "connect", PublicNetwork, BrokerName); err != nil {
-		return fmt.Errorf("connect broker to public network: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

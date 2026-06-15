@@ -17,8 +17,6 @@ IMAGE="${POTLUCK_SANDBOX_IMAGE:-potluck-sandbox:phase2}"
 # against a base image + host binary without the full image build — behaviourally identical).
 BIND=()
 if [ -n "${POTLUCK_BIN:-}" ]; then BIND=(-v "${POTLUCK_BIN}:/usr/local/bin/potluck:ro"); fi
-EGRESS=potluck-egress-verify
-PUBLIC=potluck-public-verify
 BROKER=potluck-broker-verify
 fail=0
 pass() { printf '  PASS  %s\n' "$1"; }
@@ -26,7 +24,7 @@ bad()  { printf '  FAIL  %s\n' "$1"; fail=1; }
 
 cleanup() {
   docker rm -f "$BROKER" >/dev/null 2>&1
-  docker network rm "$EGRESS" "$PUBLIC" >/dev/null 2>&1
+  docker network rm potluck-net-verify >/dev/null 2>&1
 }
 trap cleanup EXIT
 
@@ -62,25 +60,25 @@ docker run --rm ${BIND[@]+"${BIND[@]}"} "$IMAGE" potluck version >/dev/null 2>&1
 HOOK=$(echo '{"tool_name":"Bash"}' | docker run --rm -i ${BIND[@]+"${BIND[@]}"} "$IMAGE" potluck __hook 2>/dev/null)
 echo "$HOOK" | grep -q '"permissionDecision":"deny"' && pass "deny-hook blocks Bash in-image" || bad "deny-hook did not block Bash"
 
-# ── 3. Default-deny egress: agent reaches ONLY the broker, never the internet ──
-echo "[3] default-deny egress (sidecar broker model)"
-docker network create --internal "$EGRESS" >/dev/null 2>&1
-docker network create "$PUBLIC" >/dev/null 2>&1
-# Broker sidecar (fake key — we test reachability/topology, not real forwarding).
-docker run -d --rm --name "$BROKER" --network "$EGRESS" \
+# ── 3. Egress: the agent shares a bridge with the broker AND can research the open web ──
+# (Egress is open by design now — host safety comes from no-shell/no-files + the hardening
+# above, not from locking the network. The agent reaches the broker by name for the key, and
+# the open web for native research.)
+echo "[3] sandbox network: broker reachable + open web for research"
+NET=potluck-net-verify
+docker network create "$NET" >/dev/null 2>&1
+docker run -d --rm --name "$BROKER" --network "$NET" \
   -e ANTHROPIC_API_KEY=sk-ant-FAKE-verify ${BIND[@]+"${BIND[@]}"} \
   "$IMAGE" potluck __broker --addr 0.0.0.0:8787 >/dev/null 2>&1
-docker network connect "$PUBLIC" "$BROKER" >/dev/null 2>&1
 sleep 2
 
-PROBE='async function p(u){try{const r=await fetch(u,{signal:AbortSignal.timeout(4000)});return "REACHED "+r.status}catch(e){return "BLOCKED "+((e.message||e.name||"e").slice(0,30))}}
+PROBE='async function p(u){try{const r=await fetch(u,{signal:AbortSignal.timeout(5000)});return "REACHED "+r.status}catch(e){return "BLOCKED "+((e.message||e.name||"e").slice(0,30))}}
 (async()=>{console.log("broker:",await p("http://'"$BROKER"':8787/v1/messages"));console.log("internet:",await p("https://example.com"));})();'
-AGENT=$(docker run --rm --network "$EGRESS" ${BIND[@]+"${BIND[@]}"} "$IMAGE" node -e "$PROBE" 2>&1)
+AGENT=$(docker run --rm --network "$NET" ${BIND[@]+"${BIND[@]}"} "$IMAGE" node -e "$PROBE" 2>&1)
 echo "$AGENT"
-echo "$AGENT" | grep -q "broker: REACHED"   && pass "agent can reach the broker sidecar"            || bad "agent cannot reach the broker"
-echo "$AGENT" | grep -q "internet: BLOCKED" && pass "agent CANNOT reach the internet (default-deny)" || bad "agent reached the internet (egress NOT denied)"
-BRK=$(docker exec "$BROKER" node -e "fetch('https://example.com',{signal:AbortSignal.timeout(4000)}).then(r=>console.log('REACHED',r.status)).catch(e=>console.log('BLOCKED',e.message))" 2>&1)
-echo "$BRK" | grep -q "REACHED" && pass "broker (dual-homed) can reach the provider" || bad "broker cannot reach the provider"
+echo "$AGENT" | grep -q "broker: REACHED"   && pass "agent reaches the broker (key injection path)" || bad "agent cannot reach the broker"
+echo "$AGENT" | grep -q "internet: REACHED" && pass "agent can reach the open web (native research)" || bad "agent cannot reach the web"
+docker network rm "$NET" >/dev/null 2>&1
 
 echo
 if [ "$fail" -eq 0 ]; then echo "SANDBOX-VERIFY PASSED"; else echo "SANDBOX-VERIFY FAILED"; fi

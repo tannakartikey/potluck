@@ -55,7 +55,7 @@ func TestAgentRunArgsHardening(t *testing.T) {
 		"--user":         "10001:10001",
 		"--cap-drop":     "ALL",
 		"--security-opt": "no-new-privileges",
-		"--network":      EgressNetwork,
+		"--network":      SandboxNetwork,
 		"--pids-limit":   "256",
 		"--memory":       "2g",
 		"--cpus":         "2",
@@ -86,9 +86,9 @@ func TestAgentRunArgsHardening(t *testing.T) {
 	if args[n-4] != DefaultImage || args[n-3] != "claude" || args[n-1] != "hi" {
 		t.Errorf("tail = %v, want [%s claude -p hi]", args[n-4:], DefaultImage)
 	}
-	// A NON-internal network must never be the agent's network by default.
-	if !containsPair(args, "--network", "potluck-egress") {
-		t.Error("agent must join the internal egress network")
+	// The agent joins the shared sandbox bridge (open egress for native web research).
+	if !containsPair(args, "--network", SandboxNetwork) {
+		t.Error("agent must join the shared sandbox network")
 	}
 }
 
@@ -99,7 +99,7 @@ func TestBrokerRunArgs(t *testing.T) {
 			t.Errorf("broker args missing %q: %v", want, args)
 		}
 	}
-	if !containsPair(args, "--name", BrokerName) || !containsPair(args, "--network", EgressNetwork) {
+	if !containsPair(args, "--name", BrokerName) || !containsPair(args, "--network", SandboxNetwork) {
 		t.Errorf("broker name/network wrong: %v", args)
 	}
 	if !containsPair(args, "-e", "ANTHROPIC_API_KEY") {
@@ -160,18 +160,18 @@ func TestStartBrokerSequence(t *testing.T) {
 	if err := StartBroker(r.run, "", "ANTHROPIC_API_KEY", "https://api.anthropic.com"); err != nil {
 		t.Fatal(err)
 	}
-	// Expect: rm -f (cleanup) → run -d (start) → network connect (dual-home).
-	var sawRun, sawConnect bool
+	// Expect: rm -f (cleanup) → run -d (start the broker on the shared network).
+	var sawRm, sawRun bool
 	for _, c := range r.calls {
 		j := strings.Join(c, " ")
-		if strings.Contains(j, "run -d") {
+		if strings.Contains(j, "rm -f "+BrokerName) {
+			sawRm = true
+		}
+		if strings.Contains(j, "run -d") && strings.Contains(j, "--network "+SandboxNetwork) {
 			sawRun = true
 		}
-		if strings.Contains(j, "network connect "+PublicNetwork) {
-			sawConnect = true
-		}
 	}
-	if !sawRun || !sawConnect {
-		t.Errorf("StartBroker must run the sidecar AND connect it to the public net; calls=%v", r.calls)
+	if !sawRm || !sawRun {
+		t.Errorf("StartBroker must clear a stale sidecar then run it on the shared network; calls=%v", r.calls)
 	}
 }

@@ -29,6 +29,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # Permanent cache-busting: stamp every asset URL (?v=dev) with this commit's short SHA,
+      # so a fresh index.html can never be paired with a stale cached styles.css / app.js.
+      # The URL changes every deploy → browsers always fetch the matching assets.
+      - name: Cache-bust asset URLs
+        run: |
+          sha="${GITHUB_SHA::8}"
+          find web -name '*.html' -print0 | xargs -0 sed -i "s/?v=dev/?v=$sha/g"
+          echo "stamped web/ asset URLs with ?v=$sha"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

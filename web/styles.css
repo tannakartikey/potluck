@@ -152,7 +152,9 @@ code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); p
 .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .chip b { color: #ffe2cd; margin-left: .3rem; }
 .chip:not(.active) b { color: var(--accent); }
-@media (max-width: 560px) { .board-controls { flex-direction: column; align-items: stretch; } .search { max-width: none; } }
+/* column layout: reset flex so the 230px flex-basis isn't read as the input's HEIGHT (it would
+   balloon to a 230px-tall box). flex:none → content height, full width via align-items:stretch. */
+@media (max-width: 560px) { .board-controls { flex-direction: column; align-items: stretch; } .search { max-width: none; flex: none; } }
 
 .board-grid, .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.2rem; }
 .task-card, .art-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem 1.6rem;

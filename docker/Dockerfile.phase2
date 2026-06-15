@@ -1,0 +1,40 @@
+# Potluck v2 (Phase-2) sandbox image — carries BOTH the agent CLI and the potluck binary, so
+# the same locked-down container can run the agent, the MCP curated-tools server
+# (`potluck __tools-server`), the PreToolUse deny hook (`potluck __hook`), and — as a sidecar —
+# the credential broker (`potluck __broker`). One static binary, no extra artifacts.
+#
+# Build (context = repo root, so the builder can see client/):
+#   docker build -t potluck-sandbox:phase2 -f docker/Dockerfile.phase2 .
+#
+# At runtime the runner adds the boundary (see internal/sandbox): --user 10001:10001
+# --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit --memory --cpus
+# --network potluck-egress (an --internal, default-deny-egress network) + ephemeral tmpfs.
+# The agent reaches the provider ONLY via the broker sidecar; there is no host egress.
+
+# --- stage 1: build the static potluck binary (stdlib-only, CGO off) ---
+FROM golang:1.23-alpine AS build
+WORKDIR /src
+COPY client/ ./client/
+WORKDIR /src/client
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/potluck ./cmd/potluck
+
+# --- stage 2: runtime with the agent CLIs + the potluck binary, non-root ---
+# Base is a moving tag; pin by digest for full reproducibility (TODO, needs a registry).
+FROM node:22-slim
+# ca-certificates: node:22-slim ships without root CAs, so agent TLS to the LLM API fails
+# without it. Agent CLIs are version-pinned (reproducible; the curated-tools flags in
+# claudecode.go are verified against these exact versions) — bump deliberately.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g @anthropic-ai/claude-code@2.1.177 @openai/codex@0.139.0 \
+ && useradd --create-home --uid 10001 potluck \
+ && mkdir -p /home/potluck/work /home/potluck/.claude /home/potluck/.codex \
+ && chown -R potluck:potluck /home/potluck
+
+COPY --from=build /out/potluck /usr/local/bin/potluck
+
+USER potluck
+ENV HOME=/home/potluck
+WORKDIR /home/potluck/work
+ENTRYPOINT []

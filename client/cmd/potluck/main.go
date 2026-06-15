@@ -108,6 +108,14 @@ run flags:
   --image NAME      container image (default potluck-runner:latest)
   --docker-memory   container memory limit (default 2g)
   --docker-cpus     container CPU limit (default 2)
+  --phase2          OPT-IN v2 curated-tools sandbox: the agent may use fetch_url +
+                    read_document (NO raw shell) inside a hardened, default-deny-egress
+                    container, reaching the provider only via a credential broker.
+                    FAILS CLOSED — needs ANTHROPIC_API_KEY + Docker + the phase-2 image
+                    (docker build -t potluck-sandbox:phase2 -f docker/Dockerfile.phase2 .),
+                    and refuses rather than falling back to the host. v1 no-tools is default.
+  --fetch-allow a,b phase2: fetch_url host allowlist (default-deny; YOU control egress)
+  --doc-dir DIR     phase2: host dir mounted read-only as the read_document input
 
 moderate flags:
   --backend B       claude-code | codex (default: config / claude-code)
@@ -166,7 +174,22 @@ func cmdRun(args []string) {
 	image := fs.String("image", "", "container image to use (default potluck-runner:latest)")
 	dockerMem := fs.String("docker-memory", "2g", "container memory limit")
 	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit")
+	phase2 := fs.Bool("phase2", false, "OPT-IN v2 curated-tools sandbox (fetch_url + read_document via broker + hardened container; fail-closed)")
+	fetchAllow := fs.String("fetch-allow", "", "phase2: comma-separated fetch_url host allowlist (default-deny; you control egress)")
+	docDir := fs.String("doc-dir", "", "phase2: host directory mounted read-only as the read_document input dir")
 	_ = fs.Parse(args)
+
+	if *phase2 {
+		cmdRunPhase2(*image, *fetchAllow, *docDir, *dockerMem, *dockerCPUs, runner.Options{
+			Topics:       splitCSV(*topics),
+			BudgetTokens: pickInt(*budget, 16000),
+			Model:        firstNonEmpty(*model, "haiku"),
+			MaxTasks:     *maxTasks,
+			Watch:        *watch,
+			PollSeconds:  *poll,
+		})
+		return
+	}
 
 	if !config.HasKey() {
 		fmt.Fprintln(os.Stderr, "no key found — run 'potluck register' first.")

@@ -25,6 +25,11 @@ type Options struct {
 	MaxSessionPct int  // stop when the 5-hour session usage ≥ this % (0 = off)
 	Watch         bool // when the queue is empty, wait and re-poll instead of exiting
 	PollSeconds   int  // --watch poll interval (default 15)
+
+	// SystemOverride, when set, replaces the default no-tools systemPreamble. Used by the
+	// opt-in v2 curated-tools path (--phase2) to tell the agent about its curated tools. Empty
+	// (the default) keeps the v1 no-tools preamble exactly as-is.
+	SystemOverride string
 }
 
 // maxConsecFail stops the loop after repeated failures (likely rate-limited, out of
@@ -110,9 +115,13 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 		}
 		attempts++
 
+		preamble := systemPreamble
+		if opts.SystemOverride != "" {
+			preamble = opts.SystemOverride
+		}
 		prompt := buildPrompt(task)
 		resp, err := be.Run(ctx, backend.Request{
-			System:  systemPreamble,
+			System:  preamble,
 			Prompt:  prompt,
 			Model:   opts.Model,
 			Timeout: 5 * time.Minute,
@@ -137,7 +146,7 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 			continue
 		}
 
-		sum := sha256.Sum256([]byte(systemPreamble + "\x00" + prompt))
+		sum := sha256.Sum256([]byte(preamble + "\x00" + prompt))
 		promptHash := hex.EncodeToString(sum[:])
 		if _, err := cl.Submit(ctx, key, task.ID, resp.Text, resp.ReportedModel, resp.Usage.Total(), promptHash, true); err != nil {
 			fmt.Printf("· fail   %-50s submit: %v\n", short(task.Title), err)

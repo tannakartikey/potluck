@@ -98,6 +98,12 @@ func (c *ClaudeCode) Run(ctx context.Context, req Request) (*Response, error) {
 		return nil, fmt.Errorf("claude: %w", err)
 	}
 
+	return parseClaudeResult(out, req.Model)
+}
+
+// parseClaudeResult decodes Claude Code's --output-format json result into a Response. Shared
+// by the no-tools (v1) and curated-tools (v2) backends so both interpret the CLI identically.
+func parseClaudeResult(out []byte, fallbackModel string) (*Response, error) {
 	var r ccResult
 	if err := json.Unmarshal(out, &r); err != nil {
 		return nil, fmt.Errorf("parse claude json: %w", err)
@@ -105,10 +111,9 @@ func (c *ClaudeCode) Run(ctx context.Context, req Request) (*Response, error) {
 	if r.IsError || (r.Subtype != "" && r.Subtype != "success") {
 		return nil, fmt.Errorf("claude returned error (subtype=%q)", r.Subtype)
 	}
-
 	reported := dominantModel(r.ModelUsage)
 	if reported == "" {
-		reported = req.Model
+		reported = fallbackModel
 	}
 	return &Response{
 		Text:          r.Result,

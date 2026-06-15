@@ -98,7 +98,31 @@ is more reliable than flag incantations). Treat the §1 flags as defense-in-dept
       fail-closed + egress, image-inputs, `--user`, keep-alive cron, version stamping → v1.1 / v2.
 - [x] open-questions #3 — updated to the staged v1→v2 decision.
 
-v2 (curated tools + broker + sandbox) is its own track — designed above, built after v1 ships.
+### 0.6 v2 (curated tools + broker + sandbox) — BUILT on `phase-2-sandbox`, verified (2026-06-15)
+
+The v2 track designed above is now implemented and empirically verified on the
+`phase-2-sandbox` branch (opt-in `potluck run --phase2`; v1 no-tools stays the untouched
+default). Full honest status — with the exact proving commands/output and the residual
+gaps — is in [`plans/phase-2-status.md`](phase-2-status.md). In brief, all built & tested:
+
+- **Curated tools, NO raw shell** — `fetch_url` (default-deny allowlist + SSRF-safe at dial
+  time: metadata/loopback/private/CGNAT/v4-mapped/NAT64 blocked, redirects re-validated, size/
+  time caps) and `read_document` (traversal/symlink-safe; text/HTML + best-effort PDF). Exposed
+  via a project-written **MCP server** that advertises exactly these two and nothing else.
+  (`client/internal/tools`, `client/internal/mcp`.)
+- **Credential broker** — holds the real key, injects it at the last hop; the agent gets only a
+  placeholder (mock-upstream + in-container e2e verified). (`client/internal/broker`.)
+- **Default-deny egress + hardened, FAIL-CLOSED container** — `--user 10001 --read-only
+  --cap-drop ALL --no-new-privileges --pids/mem/cpu` on an `--internal` no-internet network; the
+  broker sidecar is the only reachable peer; `Preflight` refuses (never falls back to host) if
+  the key/Docker/image aren't up. Docker-verified via `scripts/verify-sandbox.sh` (10/10).
+  (`client/internal/sandbox`, `docker/Dockerfile.phase2`.)
+- **PreToolUse deny hook** — the robust boundary (§0.4): allows only the curated tools, denies
+  everything else (allow/deny verified live: real Claude used fetch_url+read_document; Bash
+  blocked). (`client/internal/hook`.)
+
+The one property NOT verifiable on this machine: a full real-key completion through the broker
+(this host is OAuth/Keychain-only, which can't be brokered) — see phase-2-status.md §3.
 
 ---
 

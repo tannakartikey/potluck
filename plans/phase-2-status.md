@@ -29,8 +29,17 @@
 >   token read); broker generalized to OpenAI (placeholder key for Codex's API-key lane).
 > - Codex env-scrub controls (`core`/`exclude`/`include_only`) are **empirically broken in
 >   v0.139.0** (only `inherit=none` works, strips PATH) — and moot anyway (broker + container
->   handle it). `execpolicy` `.rules` (a command allow/deny policy we currently *disable* with
->   `--ignore-rules`) is the remaining lever to apply — TODO.
+>   handle it).
+> - **`execpolicy` investigated (syntax obtained from source), deliberately NOT wired** — and the
+>   honest reason: it's a Starlark command policy (`prefix_rule(pattern=[...], decision="allow"|
+>   "forbidden"|"prompt")`, loaded from `.rules` files we currently disable with `--ignore-rules`).
+>   But (a) a **deny-all** rule (`pattern=[""], decision="forbidden"`) neuters Codex — its whole
+>   value is the agentic shell; (b) a **selective** "deny reading the token" rule is leaky (many
+>   ways to read a file); (c) whether `codex exec` *enforces* `.rules` in non-interactive mode
+>   (vs the standalone `codex execpolicy check` subcommand) is **unverified**. So per "verify,
+>   never claim" it stays a documented recipe, not an unverified boundary. The main Codex leak is
+>   already closed by no-mount + broker; execpolicy would be marginal defense-in-depth for the
+>   subscription lane only.
 > - Honest residual (FAQ line): **Codex on a subscription token** keeps a read-only shell that
 >   can read the token file; mitigated by network-off + output guard, not eliminated. Use an API
 >   key or Claude for the strongest isolation. *(Codex is supported, labelled the weaker lane —

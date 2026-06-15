@@ -22,6 +22,9 @@ import (
 // DefaultUpstream is the Anthropic API origin the broker forwards to.
 const DefaultUpstream = "https://api.anthropic.com"
 
+// DefaultOpenAIUpstream is the OpenAI API origin (Codex lane).
+const DefaultOpenAIUpstream = "https://api.openai.com"
+
 // DefaultPlaceholder is the dummy key handed to the agent. It is deliberately recognisable
 // and obviously not a real secret; the broker swaps it for the real key on the way out.
 const DefaultPlaceholder = "sk-ant-PLACEHOLDER-broker-injects-the-real-key"
@@ -30,6 +33,7 @@ const DefaultPlaceholder = "sk-ant-PLACEHOLDER-broker-injects-the-real-key"
 type Broker struct {
 	realKey     string
 	placeholder string
+	openAI      bool // inject Authorization: Bearer (OpenAI) vs x-api-key (Anthropic)
 	upstream    *url.URL
 	bindAddr    string
 
@@ -59,7 +63,7 @@ func New(realKey, upstream, bindAddr string) (*Broker, error) {
 	if bindAddr == "" {
 		bindAddr = "127.0.0.1:0"
 	}
-	return &Broker{realKey: realKey, placeholder: DefaultPlaceholder, upstream: u, bindAddr: bindAddr}, nil
+	return &Broker{realKey: realKey, placeholder: DefaultPlaceholder, openAI: isOpenAIHost(u.Host), upstream: u, bindAddr: bindAddr}, nil
 }
 
 // Placeholder returns the dummy key the agent should be given.
@@ -77,10 +81,15 @@ func (b *Broker) handler() http.Handler {
 			if b.upstream.Path != "" && b.upstream.Path != "/" {
 				req.URL.Path = singleJoin(b.upstream.Path, req.URL.Path)
 			}
-			// Strip whatever the agent sent and inject the real credential at the last hop.
+			// Strip whatever the agent sent and inject the real credential at the last hop,
+			// in the style the upstream provider expects (Anthropic: x-api-key; OpenAI: Bearer).
 			req.Header.Del("Authorization")
 			req.Header.Del("X-Api-Key")
-			req.Header.Set("X-Api-Key", b.realKey)
+			if b.openAI {
+				req.Header.Set("Authorization", "Bearer "+b.realKey)
+			} else {
+				req.Header.Set("X-Api-Key", b.realKey)
+			}
 		},
 		// ErrorLog must never receive the key; ReverseProxy logs only transport errors here.
 		ErrorLog: log.New(io.Discard, "", 0),
@@ -136,6 +145,12 @@ func (b *Broker) Close() error {
 
 func singleJoin(a, bb string) string {
 	return strings.TrimSuffix(a, "/") + "/" + strings.TrimPrefix(bb, "/")
+}
+
+// isOpenAIHost reports whether the upstream is OpenAI (which authenticates with a Bearer
+// token) rather than Anthropic (which uses the x-api-key header).
+func isOpenAIHost(host string) bool {
+	return strings.Contains(host, "openai.com")
 }
 
 // ScrubbedAgentEnv returns the environment to launch the agent with: the host environment

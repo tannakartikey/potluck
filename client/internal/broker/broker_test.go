@@ -64,6 +64,54 @@ func TestBrokerInjectsRealKey(t *testing.T) {
 	}
 }
 
+// TestBrokerInjectsOpenAIBearer proves the Codex/OpenAI lane: the broker injects the real key
+// as Authorization: Bearer (OpenAI style), never x-api-key, and the placeholder is gone.
+func TestBrokerInjectsOpenAIBearer(t *testing.T) {
+	if isOpenAIHost("api.anthropic.com") || !isOpenAIHost("api.openai.com") {
+		t.Fatal("provider classification wrong")
+	}
+	var mu sync.Mutex
+	var gotAuth, gotXKey string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		gotAuth = r.Header.Get("Authorization")
+		gotXKey = r.Header.Get("X-Api-Key")
+		mu.Unlock()
+		io.WriteString(w, "openai-ok")
+	}))
+	defer up.Close()
+
+	b, err := New("sk-openai-REAL-secret-xyz", up.URL, "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.openAI = true // exercise the OpenAI injection path while forwarding to the test server
+	if err := b.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, b.Addr()+"/v1/responses", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+b.Placeholder())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotAuth != "Bearer sk-openai-REAL-secret-xyz" {
+		t.Errorf("Authorization = %q, want the real key as Bearer", gotAuth)
+	}
+	if strings.Contains(gotAuth, b.Placeholder()) {
+		t.Error("placeholder leaked through to upstream")
+	}
+	if gotXKey != "" {
+		t.Errorf("OpenAI lane must not send x-api-key, got %q", gotXKey)
+	}
+}
+
 func TestNewRefusesEmptyKey(t *testing.T) {
 	if _, err := New("", "", ""); err == nil {
 		t.Error("New with no real key must fail closed")

@@ -36,6 +36,18 @@
 >   key or Claude for the strongest isolation. *(Codex is supported, labelled the weaker lane —
 >   not blocked.)*
 >
+> **Research tools (GOAL #14, first slice — toward "do a hard research task 100%"):**
+> - `web_search` — a third curated MCP tool (DuckDuckGo HTML, keyless). Parser hermetically
+>   tested; the keyless endpoint rate-limits, so it's best-effort (`POTLUCK_SEARCH_URL` swaps in
+>   a reliable engine). Exfil-safe (no attacker receiver).
+> - `--research` — adds a curated allowlist of reputable docs/source domains (github, docs
+>   sites, registries, AI-provider docs) so `fetch_url` can read documentation + GitHub source
+>   autonomously; GET-only + reputable-only = exfil-bounded. **Verified live:**
+>   developers.openai.com → 200, attacker host → blocked, and the full loop end-to-end (curated
+>   agent fetched the real Codex sandboxing doc and summarized read-only mode).
+> - Still ahead (#14): reliable keyed search, "search within a fetched page," and the harder
+>   "acquire + inspect a CLI that isn't installed" capability.
+>
 > The original status below describes the opt-in `--phase2` build; it remains accurate for that
 > (now the explicit "strongest lane, fail-closed") path.
 

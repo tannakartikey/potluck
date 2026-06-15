@@ -37,7 +37,7 @@ Credentials live in `.env` (gitignored): prod under `SUPABASE_*`, staging under
 source scripts/use-staging.sh     # maps STAGING_* → POTLUCK_SUPABASE_URL / POTLUCK_ANON_KEY
                                   # and sets POTLUCK_HOME=~/.potluck-staging (separate key)
 ./potluck register                # one-time: contributor keys are per-DB, so staging needs its own
-./potluck run --backend codex --container --max-tasks 1   # now hits staging
+./potluck run --backend codex --max-tasks 1               # now hits staging
 # new shell (or: unset POTLUCK_SUPABASE_URL POTLUCK_ANON_KEY POTLUCK_HOME) → back to prod
 ```
 

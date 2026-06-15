@@ -15,6 +15,12 @@ import (
 // curatedAllowedTools is the EXACT, complete tool surface in v2 curated mode.
 var curatedAllowedTools = []string{"mcp__potluck__fetch_url", "mcp__potluck__read_document"}
 
+// curatedDisallowed denies every built-in PLUS the harness/plugin tool-entrypoints (ToolSearch,
+// Skill, Workflow, …) that can appear when potluck runs inside a Claude Code session — so the
+// agent isn't tempted to "search/load" a tool schema instead of calling the curated MCP tools
+// directly, and the surface stays exactly the two curated tools.
+const curatedDisallowed = noToolsDenyList + " ToolSearch Skill Workflow AskUserQuestion ScheduleWakeup SendMessage DesignSync RemoteTrigger PushNotification"
+
 // curatedDocDirInContainer is where the (optional) host document dir is mounted read-only.
 const curatedDocDirInContainer = "/home/potluck/work/in"
 
@@ -41,6 +47,27 @@ type CuratedClaude struct {
 }
 
 func (c *CuratedClaude) Name() string { return "claude-code-curated" }
+
+// cleanAgentEnv returns the host environment with the Claude Code harness/session variables
+// removed, so the spawned agent CLI runs as a plain, predictable one-shot — not a "child
+// session" with experimental tool surfaces (deferred tools / ToolSearch) inherited from a
+// parent Claude Code process. Without this, a contributor running potluck from inside a Claude
+// Code session would get a polluted, unpredictable agent tool surface. Auth vars are kept.
+func cleanAgentEnv() []string {
+	stripExact := map[string]bool{"CLAUDECODE": true, "CLAUDE_EFFORT": true, "AI_AGENT": true}
+	var out []string
+	for _, kv := range os.Environ() {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		if stripExact[name] || strings.HasPrefix(name, "CLAUDE_CODE_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
 
 // mcpConfigJSON tells Claude Code to launch our stdio MCP server (the potluck binary in the
 // image) as the ONLY MCP server, configured with this task's fetch allowlist + doc dir.
@@ -97,7 +124,7 @@ func claudeCuratedArgs(req Request, allowHosts []string, docDir, potluckBin stri
 		"--strict-mcp-config",
 		"--mcp-config", mcpConfigJSON(allowHosts, docDir, potluckBin),
 		"--allowed-tools", strings.Join(curatedAllowedTools, " "),
-		"--disallowed-tools", noToolsDenyList,
+		"--disallowed-tools", curatedDisallowed,
 		"--settings", hookSettingsJSON(potluckBin),
 	}
 	if req.System != "" {
@@ -165,7 +192,8 @@ func (c *CuratedClaude) runHost(ctx context.Context, req Request) (*Response, er
 	}
 	cargs := claudeCuratedArgs(req, c.AllowHosts, c.DocDir, bin)
 	cmd := exec.CommandContext(ctx, "claude", cargs...)
-	cmd.Dir = os.TempDir() // no local CLAUDE.md / project files auto-discovered
+	cmd.Dir = os.TempDir()    // no local CLAUDE.md / project files auto-discovered
+	cmd.Env = cleanAgentEnv() // scrub harness/session vars so the agent runs in a predictable, clean mode
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

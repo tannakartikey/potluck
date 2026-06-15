@@ -32,7 +32,9 @@ You have exactly two tools, and no others:
   - fetch_url(url): fetch a public web page. Only this task's allowlisted domains are
     reachable; everything else (and all private/internal addresses) is blocked.
   - read_document(path): extract the text of a file in your input directory.
-Use them only when the task needs them. Produce ONLY the text artifact that satisfies the
+Call fetch_url and read_document DIRECTLY — they are immediately available. Do NOT use any
+tool-search, schema-loading, or discovery step; those are blocked and unnecessary.
+Use the tools only when the task needs them. Produce ONLY the text artifact that satisfies the
 task and its acceptance criteria. Be accurate — do not invent sources or facts.`
 
 // cmdRunPhase2 runs the opt-in v2 curated-tools sandbox. It FAILS CLOSED: if the real key,

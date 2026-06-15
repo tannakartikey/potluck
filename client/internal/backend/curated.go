@@ -13,7 +13,7 @@ import (
 )
 
 // curatedAllowedTools is the EXACT, complete tool surface in v2 curated mode.
-var curatedAllowedTools = []string{"mcp__potluck__fetch_url", "mcp__potluck__read_document"}
+var curatedAllowedTools = []string{"mcp__potluck__fetch_url", "mcp__potluck__read_document", "mcp__potluck__web_search"}
 
 // curatedDisallowed denies every built-in PLUS the harness/plugin tool-entrypoints (ToolSearch,
 // Skill, Workflow, …) that can appear when potluck runs inside a Claude Code session — so the

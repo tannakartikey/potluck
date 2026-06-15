@@ -39,7 +39,7 @@ task and its acceptance criteria. Be accurate — do not invent sources or facts
 
 // cmdRunPhase2 runs the opt-in v2 curated-tools sandbox. It FAILS CLOSED: if the real key,
 // Docker, or the sandbox image isn't verified up, it refuses rather than running on the host.
-func cmdRunPhase2(image, fetchAllow, docDir, mem, cpus string, opts runner.Options) {
+func cmdRunPhase2(image string, allowHosts []string, docDir, mem, cpus string, opts runner.Options) {
 	if !config.HasKey() {
 		fmt.Fprintln(os.Stderr, "no key found — run 'potluck register' first.")
 		os.Exit(1)
@@ -71,13 +71,13 @@ func cmdRunPhase2(image, fetchAllow, docDir, mem, cpus string, opts runner.Optio
 	}
 	defer sandbox.Teardown(run)
 	fmt.Printf("   broker sidecar up · egress=default-deny (only the broker reachable) · image=%s\n", image)
-	if fetchAllow == "" {
-		fmt.Fprintln(os.Stderr, "   note: no --fetch-allow set → fetch_url will deny ALL hosts (read_document still works).")
+	if len(allowHosts) == 0 {
+		fmt.Fprintln(os.Stderr, "   note: no --fetch-allow / --research set → fetch_url will deny ALL hosts (read_document still works).")
 	}
 
 	be := &backend.CuratedClaude{
 		Image:      image,
-		AllowHosts: splitCSV(fetchAllow),
+		AllowHosts: allowHosts,
 		DocDir:     docDir,
 		Memory:     mem,
 		CPUs:       cpus,
@@ -107,7 +107,7 @@ func firstNonEmpty(vals ...string) string {
 // Docker + image → broker + hardened container. Otherwise → host curated, where the credential
 // is still safe because the agent's only tools are the curated two (no shell/file), just without
 // the container backstop (the weaker tier; worst case for a subscription token = rate-limit).
-func cmdRunCurated(key, image, fetchAllow, docDir, mem, cpus string, container bool, opts runner.Options) {
+func cmdRunCurated(key, image string, allowHosts []string, docDir, mem, cpus string, container bool, opts runner.Options) {
 	if image == "" {
 		image = sandbox.DefaultImage
 	}
@@ -129,15 +129,15 @@ func cmdRunCurated(key, image, fetchAllow, docDir, mem, cpus string, container b
 			os.Exit(1)
 		}
 		defer sandbox.Teardown(run)
-		be = &backend.CuratedClaude{Image: image, AllowHosts: splitCSV(fetchAllow), DocDir: docDir, Memory: mem, CPUs: cpus}
+		be = &backend.CuratedClaude{Image: image, AllowHosts: allowHosts, DocDir: docDir, Memory: mem, CPUs: cpus}
 	} else {
 		exe, _ := os.Executable()
 		fmt.Printf("🧪 potluck — curated tools · HOST mode (%s)\n", hostLaneReason(container, haveKey))
 		fmt.Fprintln(os.Stderr, "   note: no container backstop — the curated tool surface (fetch_url + read_document, no shell/files) is the boundary. Set ANTHROPIC_API_KEY + build the sandbox image for the strongest isolation.")
-		be = &backend.CuratedClaude{Host: true, PotluckBin: exe, AllowHosts: splitCSV(fetchAllow), DocDir: docDir}
+		be = &backend.CuratedClaude{Host: true, PotluckBin: exe, AllowHosts: allowHosts, DocDir: docDir}
 	}
-	if fetchAllow == "" {
-		fmt.Fprintln(os.Stderr, "   fetch_url: no --fetch-allow set → it denies ALL hosts (read_document still works).")
+	if len(allowHosts) == 0 {
+		fmt.Fprintln(os.Stderr, "   fetch_url: no --fetch-allow / --research set → it denies ALL hosts (read_document + web_search still work).")
 	}
 
 	fmt.Println(disclaimerLine)

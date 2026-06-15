@@ -23,14 +23,17 @@ const ProtocolVersion = "2025-06-18"
 
 // Server serves the curated tools over a JSON-RPC 2.0 stdio transport.
 type Server struct {
-	Fetcher *tools.Fetcher
-	Reader  *tools.Reader
-	Name    string
-	Version string
+	Fetcher  *tools.Fetcher
+	Reader   *tools.Reader
+	Searcher *tools.Searcher
+	Name     string
+	Version  string
 }
 
 func NewServer(fetcher *tools.Fetcher, reader *tools.Reader) *Server {
-	return &Server{Fetcher: fetcher, Reader: reader, Name: "potluck", Version: "0.2"}
+	// web_search is always available: it only reaches the (engine-allowlisted) search endpoint
+	// and returns results — there is no attacker-controlled receiver, so it's broadly safe.
+	return &Server{Fetcher: fetcher, Reader: reader, Searcher: tools.NewSearcher(), Name: "potluck", Version: "0.3"}
 }
 
 type rpcRequest struct {
@@ -163,6 +166,15 @@ func (s *Server) toolDefs() []map[string]interface{} {
 				"path": map[string]interface{}{"type": "string", "description": "Path to the document, relative to the input directory."},
 			}, "path"),
 		},
+		{
+			"name": "web_search",
+			"description": "Search the web and get back a list of results (title, URL, snippet). " +
+				"Use this to FIND sources for a research task, then read promising ones with fetch_url " +
+				"(subject to this task's allowlist).",
+			"inputSchema": strObj(map[string]interface{}{
+				"query": map[string]interface{}{"type": "string", "description": "The search query."},
+			}, "query"),
+		},
 	}
 }
 
@@ -208,6 +220,24 @@ func (s *Server) callTool(params json.RawMessage) (interface{}, *rpcError) {
 		header := fmt.Sprintf("[read_document] %s (%s, %d bytes%s)\n\n",
 			res.Path, res.Kind, res.Bytes, truncatedNote(res.Truncated))
 		return toolText(header + res.Text), nil
+	case "web_search":
+		var a struct {
+			Query string `json:"query"`
+		}
+		_ = json.Unmarshal(p.Arguments, &a)
+		if s.Searcher == nil {
+			return toolErr("web_search is not enabled for this task"), nil
+		}
+		results, err := s.Searcher.Search(ctx, a.Query)
+		if err != nil {
+			return toolErr(err.Error()), nil
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "[web_search] %q — %d result(s)\n", a.Query, len(results))
+		for i, r := range results {
+			fmt.Fprintf(&b, "\n%d. %s\n   %s\n   %s", i+1, r.Title, r.URL, r.Snippet)
+		}
+		return toolText(b.String()), nil
 	default:
 		return toolErr("unknown tool: " + p.Name + " (only fetch_url and read_document exist)"), nil
 	}

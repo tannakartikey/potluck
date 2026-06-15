@@ -18,6 +18,7 @@ import (
 var CuratedTools = []string{
 	"mcp__potluck__fetch_url",
 	"mcp__potluck__read_document",
+	"mcp__potluck__web_search",
 }
 
 type hookInput struct {

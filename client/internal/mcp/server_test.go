@@ -85,8 +85,8 @@ func TestToolsListExposesExactlyCuratedTools(t *testing.T) {
 			t.Errorf("tool %v missing inputSchema", tm["name"])
 		}
 	}
-	if len(names) != 2 || !names["fetch_url"] || !names["read_document"] {
-		t.Errorf("tool surface = %v, want exactly {fetch_url, read_document}", names)
+	if len(names) != 3 || !names["fetch_url"] || !names["read_document"] || !names["web_search"] {
+		t.Errorf("tool surface = %v, want exactly {fetch_url, read_document, web_search}", names)
 	}
 	// Defense: no shell/file/web tool may ever appear here.
 	for _, forbidden := range []string{"Bash", "bash", "shell", "exec", "Read", "Write", "WebFetch"} {

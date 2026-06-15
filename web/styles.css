@@ -64,7 +64,25 @@ code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); p
 .nav-links a { color: var(--muted); font-size: .96rem; font-weight: 500; }
 .nav-links a:hover { color: var(--ink); text-decoration: none; }
 .nav-gh { color: var(--ink) !important; font-weight: 600 !important; }
-@media (max-width: 720px) { .nav-links a:not(.nav-gh):not(.nav-keep) { display: none; } }
+/* mobile hamburger — CSS-only toggle (close-on-tap enhanced in app.js) */
+.nav-toggle { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.nav-burger { display: none; }
+@media (max-width: 860px) {
+  .nav { flex-wrap: wrap; }
+  .nav:has(#nav-toggle:checked) { background: var(--bg); }
+  .nav-burger { display: inline-flex; flex-direction: column; justify-content: center; gap: 5px;
+    width: 42px; height: 42px; padding: 10px; margin-right: -10px; cursor: pointer; border-radius: 10px; }
+  .nav-burger span { display: block; width: 100%; height: 2px; background: var(--ink); border-radius: 2px;
+    transition: transform .25s ease, opacity .2s ease; }
+  .nav-toggle:checked ~ .nav-burger span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .nav-toggle:checked ~ .nav-burger span:nth-child(2) { opacity: 0; }
+  .nav-toggle:checked ~ .nav-burger span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+  .nav-links { display: none; order: 3; flex-basis: 100%; flex-direction: column; align-items: stretch; gap: 0;
+    margin-top: .5rem; padding-top: .25rem; border-top: 1px solid var(--border); }
+  .nav-toggle:checked ~ .nav-links { display: flex; }
+  .nav-links a { padding: .85rem .1rem; font-size: 1.05rem; border-bottom: 1px solid var(--border); }
+  .nav-links a:last-child { border-bottom: none; }
+}
 
 /* ── hero ── */
 .hero { padding: clamp(3.5rem, 9vw, 7rem) 0 clamp(2.5rem, 6vw, 4.5rem); position: relative; overflow: hidden; }

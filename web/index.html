@@ -20,11 +20,13 @@
 <body>
   <nav class="nav" id="nav">
     <a class="brand" href="#top"><span class="brand-mark">🍲</span> Potluck</a>
-    <div class="nav-links">
+    <input type="checkbox" id="nav-toggle" class="nav-toggle" tabindex="-1" aria-hidden="true" />
+    <label class="nav-burger" for="nav-toggle" aria-label="Toggle menu"><span></span><span></span><span></span></label>
+    <div class="nav-links" id="nav-links">
       <a href="#how">How it works</a>
-      <a href="#board" class="nav-keep">The board</a>
+      <a href="#board">The board</a>
       <a href="#built">Built so far</a>
-      <a href="#start" class="nav-keep">Get started</a>
+      <a href="#start">Get started</a>
       <a href="#submit">Submit a task</a>
       <a href="#faq">FAQ</a>
       <a class="nav-gh" href="https://github.com/tannakartikey/potluck" target="_blank" rel="noopener">GitHub ↗</a>

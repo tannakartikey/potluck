@@ -200,6 +200,10 @@ function initChrome() {
   const onScroll = () => nav.classList.toggle("scrolled", window.scrollY > 8);
   window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
 
+  // mobile menu: close the dropdown after a link is tapped
+  const navToggle = $("#nav-toggle");
+  if (navToggle) $$("#nav-links a").forEach((a) => a.addEventListener("click", () => { navToggle.checked = false; }));
+
   const search = $("#board-search");
   if (search) {
     let deb;

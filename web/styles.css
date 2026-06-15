@@ -207,6 +207,19 @@ code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); p
 .trust-card h3 { font-family: var(--display); font-weight: 600; font-size: 1.25rem; color: #fff; margin: .8rem 0 .45rem; }
 .trust-card p { color: #bdae96; font-size: .98rem; margin: 0; line-height: 1.55; }
 
+/* ── faq ── */
+.faq { display: flex; flex-direction: column; gap: .8rem; }
+.faq-item { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+.faq-item summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 1.15rem 1.5rem; font-family: var(--display); font-weight: 600; font-size: 1.18rem; line-height: 1.35; letter-spacing: -.01em; color: var(--ink); }
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after { content: "+"; flex: none; font-family: var(--sans); font-weight: 400; font-size: 1.6rem; line-height: 1; color: var(--accent); transition: transform .2s; }
+.faq-item[open] summary::after { transform: rotate(45deg); }
+.faq-item summary:hover { color: var(--accent); }
+.faq-a { padding: 0 1.5rem 1.3rem; }
+.faq-a p { margin: 0; color: var(--muted); font-size: 1.04rem; line-height: 1.62; max-width: 64ch; }
+.faq-a a { text-decoration: underline; text-underline-offset: 2px; }
+
 /* ── footer ── */
 .footer { background: var(--tint); border-top: 1px solid var(--border); padding: clamp(3rem, 6vw, 4.5rem) 0 2.5rem; color: var(--muted); }
 .footer-top { display: flex; flex-wrap: wrap; gap: 1.5rem 3rem; justify-content: space-between; align-items: flex-start; }

@@ -2,7 +2,24 @@
 
 **Date:** 2026-06-15 · **Branch:** `phase-2-sandbox` · **Owner был AFK; built autonomously.**
 
-> ## UPDATE (later same day) — curated tools are now the DEFAULT, opened to everyone
+> ## UPDATE 2 — curated mode now uses the agent's NATIVE web tools; egress is OPEN
+> Superseding the curated `fetch_url`/`web_search` design below: per owner direction, web
+> research uses the **agent's native WebSearch + WebFetch** (reliable, provider-maintained)
+> instead of our SSRF-allowlisted fetch + flaky DDG scraper. Curated surface = **WebSearch +
+> WebFetch + read_document** (attachments, confined); **shell + file access stay DENIED**.
+> - **Posture shift, stated plainly:** egress goes **default-deny → OPEN**. The load-bearing
+>   boundary is now **host safety** (no shell, no file/credential reach) — which is the property
+>   that actually matters for running a stranger's PUBLIC task. With no host access, the agent
+>   can only exfiltrate what's already in its (public-task) context. The credential is still
+>   protected (broker placeholder).
+> - The container lane is now a single shared bridge (host-isolation + open egress + broker key
+>   injection); the `--internal` locked-egress + DDG `web_search` + `--research`/`fetch_url`
+>   allowlist are removed. `internal/tools` now holds only read_document (+PDF).
+> - **Verified live:** native WebFetch → page title; native WebSearch → found+cited ripgrep
+>   docs; read_document → sandboxed doc; **Bash BLOCKED**. verify-sandbox.sh green (hardening +
+>   broker reachable + open web).
+>
+> ## UPDATE (earlier same day) — curated tools are now the DEFAULT, opened to everyone
 > Per owner decision (pre-launch, no users yet), `potluck run` now **defaults** to the curated
 > tool surface and degrades gracefully instead of failing closed:
 > - **API key + Docker + image → broker + hardened container** (strongest). *Built; live e2e

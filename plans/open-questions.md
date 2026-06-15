@@ -898,3 +898,36 @@ registers a recurring **trigger** — which is exactly the mechanism in **#32** 
 
 **Recommendation:** build #32's trigger mechanism first; add this inference layer on top once there's a
 corpus to learn the patterns from. Parked.
+
+---
+
+## 36. Capability-based task↔host matching — **[parked: future "topping"; nice-to-have, not load-bearing]**
+
+**Idea (owner, 2026-06-15).** Now that execution is *tiered by capability* — no-tools, curated
+(native web research + read_document, no shell), and a future shell/coding tier — a task could
+**declare which capabilities it needs**, and the system would **match it to hosts/contributors
+willing to run that tier**. e.g. a "summarize this page" task needs `web_fetch`; a "run this
+test suite" task needs `shell`. A contributor opts in to the tiers they're comfortable running;
+the board only offers them matching tasks.
+
+**Why it's attractive.** It makes the safety story *legible* to contributors ("this task only
+needs web access, not shell"), routes higher-risk tasks only to consenting hosts, and lets the
+queue scale across capability tiers without a contributor accidentally claiming something they
+didn't want to run.
+
+**Why it's parked (owner's own framing).** It's "a topping to make people feel safe," not a
+boundary — the real safety is still the per-tier sandbox, not the matching. It needs a DB column
+(`subtasks.required_capabilities`), claim-path filtering, and a client capability declaration —
+a real but not large change. There are **higher-priority items first**. The data model already
+reserves room (nullable columns bolt on without a reshape), so this is additive later.
+
+**Shape when built.**
+- `subtasks.required_capabilities text[]` (e.g. `{web_search,web_fetch}` / `{shell}`); default
+  `{}` = the no-tools tier.
+- `claim_subtask(p_key, p_topics, p_capabilities)` filters to tasks whose required set ⊆ the
+  contributor's offered set.
+- Client declares its tier (derived from the run mode: `--no-tools` / curated / future shell).
+- Submission/moderation can set/verify the declared capabilities (ties to #27 harm-tier routing).
+
+**Recommendation:** parked. Revisit after the current higher-priority work; it slots in over the
+reserved columns with no reshape.

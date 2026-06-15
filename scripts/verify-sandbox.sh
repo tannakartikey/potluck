@@ -58,8 +58,8 @@ echo "$OUT" | grep -q "NoNewPrivs:.*1"             && pass "no-new-privileges se
 
 # ── 2. The potluck binary + curated tools are present in the image ──
 echo "[2] in-container tooling"
-docker run --rm "${BIND[@]}" "$IMAGE" potluck version >/dev/null 2>&1 && pass "potluck binary present" || bad "potluck binary missing"
-HOOK=$(echo '{"tool_name":"Bash"}' | docker run --rm -i "${BIND[@]}" "$IMAGE" potluck __hook 2>/dev/null)
+docker run --rm ${BIND[@]+"${BIND[@]}"} "$IMAGE" potluck version >/dev/null 2>&1 && pass "potluck binary present" || bad "potluck binary missing"
+HOOK=$(echo '{"tool_name":"Bash"}' | docker run --rm -i ${BIND[@]+"${BIND[@]}"} "$IMAGE" potluck __hook 2>/dev/null)
 echo "$HOOK" | grep -q '"permissionDecision":"deny"' && pass "deny-hook blocks Bash in-image" || bad "deny-hook did not block Bash"
 
 # ── 3. Default-deny egress: agent reaches ONLY the broker, never the internet ──
@@ -68,14 +68,14 @@ docker network create --internal "$EGRESS" >/dev/null 2>&1
 docker network create "$PUBLIC" >/dev/null 2>&1
 # Broker sidecar (fake key — we test reachability/topology, not real forwarding).
 docker run -d --rm --name "$BROKER" --network "$EGRESS" \
-  -e ANTHROPIC_API_KEY=sk-ant-FAKE-verify "${BIND[@]}" \
+  -e ANTHROPIC_API_KEY=sk-ant-FAKE-verify ${BIND[@]+"${BIND[@]}"} \
   "$IMAGE" potluck __broker --addr 0.0.0.0:8787 >/dev/null 2>&1
 docker network connect "$PUBLIC" "$BROKER" >/dev/null 2>&1
 sleep 2
 
 PROBE='async function p(u){try{const r=await fetch(u,{signal:AbortSignal.timeout(4000)});return "REACHED "+r.status}catch(e){return "BLOCKED "+((e.message||e.name||"e").slice(0,30))}}
 (async()=>{console.log("broker:",await p("http://'"$BROKER"':8787/v1/messages"));console.log("internet:",await p("https://example.com"));})();'
-AGENT=$(docker run --rm --network "$EGRESS" "${BIND[@]}" "$IMAGE" node -e "$PROBE" 2>&1)
+AGENT=$(docker run --rm --network "$EGRESS" ${BIND[@]+"${BIND[@]}"} "$IMAGE" node -e "$PROBE" 2>&1)
 echo "$AGENT"
 echo "$AGENT" | grep -q "broker: REACHED"   && pass "agent can reach the broker sidecar"            || bad "agent cannot reach the broker"
 echo "$AGENT" | grep -q "internet: BLOCKED" && pass "agent CANNOT reach the internet (default-deny)" || bad "agent reached the internet (egress NOT denied)"

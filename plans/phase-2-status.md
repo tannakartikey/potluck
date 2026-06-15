@@ -165,14 +165,16 @@ broker; its only tools are the two curated ones; its filesystem is read-only and
    placeholder (`ScrubbedAgentEnv` unit test). The missing piece is purely "real key →
    200 completion," which needs an API key. **To verify:**
    `ANTHROPIC_API_KEY=sk-ant-… potluck run --phase2 --fetch-allow example.com --max-tasks 1`
-2. **The baked `potluck-sandbox:phase2` image** was building on this host's 2023-era Docker
-   daemon and was very slow (large npm install); it had not finished at write time. All
-   container properties were instead verified against the **behaviorally identical** base
-   (`potluck-runner:latest` = the same `node:22-slim` + uid-10001 runtime stage) with the exact
-   cross-compiled linux binary **bind-mounted** in — the only difference from the baked image is
-   baked-vs-mounted binary. The Dockerfile's two stages are each independently sound: the Go
-   cross-compile is proven (`/tmp/potluck-linux`, static ELF), and the runtime stage mirrors the
-   proven runner image + `COPY` binary. **To verify the artifact itself:**
+2. **The baked `potluck-sandbox:phase2` image — now BUILT and verified 10/10.**
+   `bash scripts/verify-sandbox.sh` PASSES against the real image (not a bind-mount): potluck
+   binary + claude 2.1.177 baked in, hardening, and the default-deny egress sidecar model all
+   green. **Caveat on how it was built:** this host's Docker `build` subsystem was wedged — the
+   daemon could not resolve registry metadata (the canonical `docker/Dockerfile.phase2`, which
+   pulls `golang:1.23-alpine` + `node:22-slim`, hung indefinitely on "load metadata"). So the
+   artifact was instead produced WITHOUT the builder, via `docker create`/`cp`/`commit` from the
+   already-local `potluck-runner:latest` base (= the same `node:22-slim` + agent CLIs + uid-10001
+   runtime stage) plus the cross-compiled `potluck` binary — functionally identical to what the
+   Dockerfile produces. Rebuilding from the Dockerfile itself needs working registry access:
    `docker build -t potluck-sandbox:phase2 -f docker/Dockerfile.phase2 . && bash scripts/verify-sandbox.sh`
 3. **Live SSRF *via the LLM*** was flaky (a haiku run got confused about MCP invocation and
    didn't attempt the calls). SSRF blocking is instead proven deterministically through the real

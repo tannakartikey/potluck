@@ -91,20 +91,31 @@ func wrapExec(d *DockerConfig, bin string, args []string) (string, []string) {
 //   - Forward API keys BY NAME (e.g. "ANTHROPIC_API_KEY"), so the secret value is never
 //     copied into Potluck's own config, state, or logs — Docker reads it straight from the
 //     host process env, and if the var is unset the container simply doesn't get it.
+//
+// PREFER THE API KEY. If the relevant API key is set, we forward it and do NOT mount the
+// credential FILE — so an untrusted task (especially Codex, which keeps a read-only shell that
+// can `cat` any file in its view) has no credential file present to read. The token-file mount
+// is the SUBSCRIPTION fallback only, used when there is no API key. (Even stronger isolation —
+// a placeholder key via the broker so not even the real key is in the container — is the v2
+// curated path.) Verified weakness this closes: Codex read-only shell reads a mounted auth file.
 func AuthMountsFor(backendName, home string) (mounts, env []string) {
 	switch backendName {
 	case "codex":
 		// Codex persists auth (OpenAI key and/or OAuth tokens) in one JSON file.
-		if p := filepath.Join(home, ".codex", "auth.json"); fileExists(p) {
-			mounts = append(mounts, p+":/home/potluck/.codex/auth.json:ro")
+		if os.Getenv("OPENAI_API_KEY") == "" {
+			if p := filepath.Join(home, ".codex", "auth.json"); fileExists(p) {
+				mounts = append(mounts, p+":/home/potluck/.codex/auth.json:ro")
+			}
 		}
 		env = append(env, "OPENAI_API_KEY")
 	case "claude-code":
 		// Claude Code on Linux keeps a single credentials file we can mount; on macOS
 		// auth lives in the Keychain (not a mountable file), so the container path is the
 		// ANTHROPIC_API_KEY env var instead.
-		if p := filepath.Join(home, ".claude", ".credentials.json"); fileExists(p) {
-			mounts = append(mounts, p+":/home/potluck/.claude/.credentials.json:ro")
+		if os.Getenv("ANTHROPIC_API_KEY") == "" {
+			if p := filepath.Join(home, ".claude", ".credentials.json"); fileExists(p) {
+				mounts = append(mounts, p+":/home/potluck/.claude/.credentials.json:ro")
+			}
 		}
 		env = append(env, "ANTHROPIC_API_KEY")
 	}

@@ -59,6 +59,12 @@ func main() {
 		cmdUsage(os.Args[2:])
 	case "status":
 		cmdStatus(os.Args[2:])
+	case "__hook":
+		cmdHook(os.Args[2:]) // internal: PreToolUse deny-all-except-curated hook (v2 sandbox)
+	case "__tools-server":
+		cmdToolsServer(os.Args[2:]) // internal: MCP curated-tools stdio server (v2 sandbox)
+	case "__broker":
+		cmdBroker(os.Args[2:]) // internal: credential broker (v2 sandbox sidecar)
 	case "version", "-v", "--version":
 		fmt.Println("potluck", version)
 	case "help", "-h", "--help":
@@ -102,6 +108,20 @@ run flags:
   --image NAME      container image (default potluck-runner:latest)
   --docker-memory   container memory limit (default 2g)
   --docker-cpus     container CPU limit (default 2)
+  CURATED TOOLS ARE THE DEFAULT (Claude Code): the agent may use fetch_url +
+  read_document (NO raw shell). It auto-picks the strongest lane and degrades — never
+  refuses: ANTHROPIC_API_KEY + Docker + the sandbox image → broker + hardened container;
+  otherwise → host curated (the curated tool surface is the boundary, no container backstop).
+  --no-tools        strict v1 no-tools mode (escape hatch)
+  --phase2          force the strongest lane (broker + hardened container) and FAIL CLOSED
+                    if it can't come up (needs ANTHROPIC_API_KEY + Docker + the image:
+                    docker build -t potluck-sandbox:phase2 -f docker/Dockerfile.phase2 .)
+  --fetch-allow a,b fetch_url host allowlist (default-deny; YOU control egress)
+  --research        let the agent RESEARCH: adds a curated allowlist of reputable docs/
+                    source domains (github, docs sites, package registries, …) so it can
+                    read documentation + GitHub source, and enables web_search. GET-only +
+                    exfil-bounded. (Combine with --fetch-allow to add task-specific domains.)
+  --doc-dir DIR     directory read_document may read (mounted read-only in a container)
 
 moderate flags:
   --backend B       claude-code | codex (default: config / claude-code)
@@ -160,7 +180,23 @@ func cmdRun(args []string) {
 	image := fs.String("image", "", "container image to use (default potluck-runner:latest)")
 	dockerMem := fs.String("docker-memory", "2g", "container memory limit")
 	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit")
+	phase2 := fs.Bool("phase2", false, "force the strongest curated lane (broker + hardened container) and FAIL CLOSED if it can't come up")
+	noTools := fs.Bool("no-tools", false, "strict v1 no-tools mode (escape hatch; curated tools are the default)")
+	docDir := fs.String("doc-dir", "", "directory the read_document tool may read (mounted read-only in a container)")
 	_ = fs.Parse(args)
+
+	curatedOpts := runner.Options{
+		Topics:       splitCSV(*topics),
+		BudgetTokens: pickInt(*budget, 16000),
+		Model:        firstNonEmpty(*model, "haiku"),
+		MaxTasks:     *maxTasks,
+		Watch:        *watch,
+		PollSeconds:  *poll,
+	}
+	if *phase2 {
+		cmdRunPhase2(*image, *docDir, *dockerMem, *dockerCPUs, curatedOpts)
+		return
+	}
 
 	if !config.HasKey() {
 		fmt.Fprintln(os.Stderr, "no key found — run 'potluck register' first.")
@@ -175,6 +211,17 @@ func cmdRun(args []string) {
 	if chosen == "" {
 		chosen = "claude-code"
 	}
+
+	// DEFAULT = curated tools. Claude Code gets the real curated lane (MCP-only fetch_url +
+	// read_document), auto-degrading from broker+container to host. --no-tools is the strict v1
+	// escape hatch; Codex can't be MCP-only (it always keeps a shell), so it stays on the
+	// hardened container path, labelled the weaker lane.
+	if !*noTools && chosen == "claude-code" {
+		curatedOpts.Model = firstNonEmpty(*model, cfg.Model, "haiku")
+		cmdRunCurated(key, *image, *docDir, *dockerMem, *dockerCPUs, !*noContainer, curatedOpts)
+		return
+	}
+
 	be := buildBackend(chosen, !*noContainer, *image, *dockerMem, *dockerCPUs)
 	if chosen != "claude-code" && (*maxWeek > 0 || *maxSession > 0) {
 		fmt.Fprintf(os.Stderr, "note: --max-week/--max-session need plan-usage reporting (Claude Code only); ignored for %s.\n", chosen)

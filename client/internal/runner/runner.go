@@ -132,7 +132,8 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 			fmt.Printf("· block  %-50s output guard tripped (%s)\n", short(task.Title), hit)
 			_ = cl.Release(ctx, key, task.ID, false)
 			failed++
-			consec++
+			// a guard block is a content reject (incl. false positives like a doc path),
+			// NOT a backend/rate failure — don't let it trip the maxConsecFail circuit breaker.
 			continue
 		}
 
@@ -178,6 +179,12 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`xox[baprs]-[A-Za-z0-9-]{10,}`),
 	regexp.MustCompile(`/Users/[A-Za-z0-9._-]+/`),
 	regexp.MustCompile(`/home/[A-Za-z0-9._-]+/`),
+	regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`),                                         // Google API key
+	regexp.MustCompile(`sk_(live|test)_[A-Za-z0-9]{16,}`),                               // Stripe secret key
+	regexp.MustCompile(`sk-proj-[A-Za-z0-9_-]{16,}`),                                    // OpenAI project key
+	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`), // JWT (session/bearer)
+	regexp.MustCompile(`[Cc]:\\Users\\`),                                                // Windows home path
+	regexp.MustCompile(`\$HOME/|~/\.(ssh|aws|gnupg|config)\b`),                          // $HOME / ~/.ssh etc.
 }
 
 func guard(s string) string {

@@ -22,6 +22,12 @@ func TestGuardDetectsSecrets(t *testing.T) {
 		"AKIAABCDEFGHIJKLMNOP",
 		"see /Users/kartikey/secret.txt",
 		"token ghp_abcdefghijklmnopqrstuvwxyz0123",
+		"AIzaSyA1234567890abcdefghijklmnopqrstuv",                               // Google API key
+		"key sk_live_abcdefghijklmnop1234",                                      // Stripe secret key
+		"key sk-proj-abcdefghijklmnop1234",                                      // OpenAI project key
+		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop1234", // JWT (session/bearer)
+		"path C:\\Users\\bob\\creds.txt",                                        // Windows home path
+		"cat ~/.ssh/id_rsa",                                                     // ~/.ssh
 	}
 	for _, s := range bad {
 		if guard(s) == "" {

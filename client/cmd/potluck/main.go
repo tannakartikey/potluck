@@ -228,6 +228,7 @@ func buildBackend(chosen string, container bool, image, dockerMem, dockerCPUs st
 	case "claude-code":
 		return &backend.ClaudeCode{Bin: "claude", Docker: dcfg}
 	case "codex":
+		fmt.Fprintln(os.Stderr, "⚠️  Codex runs a read-only sandbox, not hard no-tools safe mode — it can still run read-only shell and read local files (best-effort). Claude Code is the safer default for untrusted tasks; the output guard is the backstop.")
 		return &backend.Codex{Bin: "codex", Docker: dcfg}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown backend %q (supported: claude-code, codex)\n", chosen)

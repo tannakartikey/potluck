@@ -16,9 +16,9 @@ import (
 // CuratedTools is the entire set of tool names the agent may call in curated-tools mode.
 // These are the MCP-namespaced names Claude Code uses for our stdio server ("potluck").
 var CuratedTools = []string{
-	"mcp__potluck__fetch_url",
-	"mcp__potluck__read_document",
-	"mcp__potluck__web_search",
+	"WebSearch",                   // native: research the open web (search)
+	"WebFetch",                    // native: research the open web (read a page)
+	"mcp__potluck__read_document", // ours: read a task attachment, confined to the input dir
 }
 
 type hookInput struct {

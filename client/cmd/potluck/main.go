@@ -18,7 +18,6 @@ import (
 	"github.com/tannakartikey/potluck/client/internal/backend"
 	"github.com/tannakartikey/potluck/client/internal/config"
 	"github.com/tannakartikey/potluck/client/internal/runner"
-	"github.com/tannakartikey/potluck/client/internal/tools"
 )
 
 const repoURL = "https://github.com/tannakartikey/potluck"
@@ -183,15 +182,8 @@ func cmdRun(args []string) {
 	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit")
 	phase2 := fs.Bool("phase2", false, "force the strongest curated lane (broker + hardened container) and FAIL CLOSED if it can't come up")
 	noTools := fs.Bool("no-tools", false, "strict v1 no-tools mode (escape hatch; curated tools are the default)")
-	fetchAllow := fs.String("fetch-allow", "", "fetch_url host allowlist (default-deny; you control egress)")
-	research := fs.Bool("research", false, "add a curated allowlist of reputable docs/source domains so the agent can research (read docs + GitHub source) — and enable web_search")
 	docDir := fs.String("doc-dir", "", "directory the read_document tool may read (mounted read-only in a container)")
 	_ = fs.Parse(args)
-
-	allowHosts := splitCSV(*fetchAllow)
-	if *research {
-		allowHosts = append(tools.ResearchAllowlist(), allowHosts...)
-	}
 
 	curatedOpts := runner.Options{
 		Topics:       splitCSV(*topics),
@@ -202,7 +194,7 @@ func cmdRun(args []string) {
 		PollSeconds:  *poll,
 	}
 	if *phase2 {
-		cmdRunPhase2(*image, allowHosts, *docDir, *dockerMem, *dockerCPUs, curatedOpts)
+		cmdRunPhase2(*image, *docDir, *dockerMem, *dockerCPUs, curatedOpts)
 		return
 	}
 
@@ -226,7 +218,7 @@ func cmdRun(args []string) {
 	// hardened container path, labelled the weaker lane.
 	if !*noTools && chosen == "claude-code" {
 		curatedOpts.Model = firstNonEmpty(*model, cfg.Model, "haiku")
-		cmdRunCurated(key, *image, allowHosts, *docDir, *dockerMem, *dockerCPUs, !*noContainer, curatedOpts)
+		cmdRunCurated(key, *image, *docDir, *dockerMem, *dockerCPUs, !*noContainer, curatedOpts)
 		return
 	}
 

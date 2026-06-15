@@ -12,34 +12,35 @@ import (
 	"github.com/tannakartikey/potluck/client/internal/sandbox"
 )
 
-// curatedAllowedTools is the EXACT, complete tool surface in v2 curated mode.
-var curatedAllowedTools = []string{"mcp__potluck__fetch_url", "mcp__potluck__read_document", "mcp__potluck__web_search"}
+// curatedAllowedTools is the EXACT, complete tool surface in curated mode: the agent's own
+// NATIVE web tools (reliable, provider-maintained) for research, plus our confined
+// read_document for task attachments. NO shell, NO file access. Web egress is open (the agent
+// can search + read the open web); host access is denied (the boundary that actually matters
+// for running a stranger's task — see docs/threat-model.md).
+var curatedAllowedTools = []string{"WebSearch", "WebFetch", "mcp__potluck__read_document"}
 
-// curatedDisallowed denies every built-in PLUS the harness/plugin tool-entrypoints (ToolSearch,
-// Skill, Workflow, …) that can appear when potluck runs inside a Claude Code session — so the
-// agent isn't tempted to "search/load" a tool schema instead of calling the curated MCP tools
-// directly, and the surface stays exactly the two curated tools.
-const curatedDisallowed = noToolsDenyList + " ToolSearch Skill Workflow AskUserQuestion ScheduleWakeup SendMessage DesignSync RemoteTrigger PushNotification"
+// curatedDisallowed denies every host-touching built-in (shell + file) and the harness/plugin
+// tool-entrypoints (ToolSearch/Skill/Workflow/…) — but DOES allow WebSearch/WebFetch (the
+// research surface). It deliberately does NOT reuse noToolsDenyList, which denies the web tools.
+const curatedDisallowed = "Bash Edit Write Read NotebookEdit Task Glob Grep KillShell BashOutput TodoWrite SlashCommand ToolSearch Skill Workflow AskUserQuestion ScheduleWakeup SendMessage DesignSync RemoteTrigger PushNotification"
 
 // curatedDocDirInContainer is where the (optional) host document dir is mounted read-only.
 const curatedDocDirInContainer = "/home/potluck/work/in"
 
-// CuratedClaude runs a task via Claude Code with the v2 CURATED tool surface — exactly
-// fetch_url + read_document (project-implemented, SSRF-safe / traversal-safe), never raw
-// shell, file, or arbitrary web. It executes inside the hardened, default-deny-egress sandbox
-// container (internal/sandbox); the provider is reached ONLY through the broker sidecar, and
-// the agent holds only a placeholder key. Opt-in (--phase2); the v1 no-tools path is unchanged.
+// CuratedClaude runs a task via Claude Code with the CURATED tool surface: the agent's native
+// WebSearch + WebFetch (research the open web) + our confined read_document — never raw shell or
+// file access. Host safety (no reading ~/.ssh, no credential reach) is the load-bearing boundary
+// and it holds; egress is open. It runs on the host or inside the hardened container (host
+// isolation + broker key injection). The default for `potluck run`; --no-tools is the v1 path.
 type CuratedClaude struct {
-	Image      string
-	AllowHosts []string // fetch_url host allowlist — contributor-controlled egress, default-deny
-	DocDir     string   // document input dir (mounted ro in a container; used directly on host)
-	Memory     string
-	CPUs       string
+	Image  string
+	DocDir string // document input dir (mounted ro in a container; used directly on host)
+	Memory string
+	CPUs   string
 
 	// Host runs curated mode directly on the host (no container) — the subscription / no-Docker
-	// lane. The credential is still safe because the agent's ONLY tools are the curated MCP two
-	// (verified live: Bash blocked, fetch_url/read_document work); but there is no container
-	// backstop, so this is the weaker tier (worst case for a subscription token = rate-limit).
+	// lane. The credential is safe because the agent's only tools are web + read_document (no
+	// shell/file); but there is no container backstop, so it's the weaker tier.
 	Host bool
 	// PotluckBin is the path the agent CLI uses to launch the MCP tools server + the deny hook.
 	// In a container it's "potluck" (on PATH in the image); on the host it's this binary's abs path.
@@ -69,13 +70,10 @@ func cleanAgentEnv() []string {
 	return out
 }
 
-// mcpConfigJSON tells Claude Code to launch our stdio MCP server (the potluck binary in the
-// image) as the ONLY MCP server, configured with this task's fetch allowlist + doc dir.
-func mcpConfigJSON(allowHosts []string, docDir, potluckBin string) string {
+// mcpConfigJSON tells Claude Code to launch our stdio MCP server (the potluck binary) as the
+// ONLY MCP server — it exposes just read_document (web research uses the native web tools).
+func mcpConfigJSON(docDir, potluckBin string) string {
 	srvArgs := []string{"__tools-server"}
-	if len(allowHosts) > 0 {
-		srvArgs = append(srvArgs, "--allow", strings.Join(allowHosts, ","))
-	}
 	if docDir != "" {
 		srvArgs = append(srvArgs, "--doc-dir", docDir)
 	}
@@ -107,14 +105,14 @@ func hookSettingsJSON(potluckBin string) string {
 
 // claudeCuratedArgs builds the curated-tools claude argv. The tool boundary is LAYERED so it
 // does not depend on getting any single fragile flag exactly right:
-//  1. the MCP server exposes only fetch_url + read_document;
+//  1. the MCP server exposes only read_document; web research uses native WebSearch/WebFetch;
 //  2. --strict-mcp-config ignores the user's own MCP servers;
-//  3. --disallowed-tools denies every builtin (Bash/Read/Write/WebFetch/…);
-//  4. --allowed-tools pre-approves ONLY the two curated tools (headless can't prompt);
+//  3. --disallowed-tools denies every host-touching builtin (Bash/Read/Write/…) + harness tools;
+//  4. --allowed-tools pre-approves ONLY WebSearch + WebFetch + read_document (headless can't prompt);
 //  5. the PreToolUse hook denies anything not on the curated allowlist (the real backstop).
 //
 // Note: we never use the inert --allowed-tools "" (the platform-killing v1 bug).
-func claudeCuratedArgs(req Request, allowHosts []string, docDir, potluckBin string) []string {
+func claudeCuratedArgs(req Request, docDir, potluckBin string) []string {
 	if potluckBin == "" {
 		potluckBin = "potluck"
 	}
@@ -122,7 +120,7 @@ func claudeCuratedArgs(req Request, allowHosts []string, docDir, potluckBin stri
 		"-p", req.Prompt,
 		"--output-format", "json",
 		"--strict-mcp-config",
-		"--mcp-config", mcpConfigJSON(allowHosts, docDir, potluckBin),
+		"--mcp-config", mcpConfigJSON(docDir, potluckBin),
 		"--allowed-tools", strings.Join(curatedAllowedTools, " "),
 		"--disallowed-tools", curatedDisallowed,
 		"--settings", hookSettingsJSON(potluckBin),
@@ -160,7 +158,7 @@ func (c *CuratedClaude) runContainer(ctx context.Context, req Request) (*Respons
 		docDirInContainer = curatedDocDirInContainer
 		mounts = append(mounts, c.DocDir+":"+curatedDocDirInContainer+":ro")
 	}
-	cargs := claudeCuratedArgs(req, c.AllowHosts, docDirInContainer, "potluck") // potluck is on PATH in the image
+	cargs := claudeCuratedArgs(req, docDirInContainer, "potluck") // potluck is on PATH in the image
 	env := []string{
 		// The container starts from a clean env (image ENV only): the real key is simply never
 		// passed in. The agent gets the broker URL + a placeholder, so a dump-env finds no key.
@@ -190,7 +188,7 @@ func (c *CuratedClaude) runHost(ctx context.Context, req Request) (*Response, er
 	if bin == "" {
 		bin = "potluck"
 	}
-	cargs := claudeCuratedArgs(req, c.AllowHosts, c.DocDir, bin)
+	cargs := claudeCuratedArgs(req, c.DocDir, bin)
 	cmd := exec.CommandContext(ctx, "claude", cargs...)
 	cmd.Dir = os.TempDir()    // no local CLAUDE.md / project files auto-discovered
 	cmd.Env = cleanAgentEnv() // scrub harness/session vars so the agent runs in a predictable, clean mode

@@ -33,7 +33,8 @@ func TestHookAllowsCuratedTools(t *testing.T) {
 }
 
 func TestHookDeniesEverythingElse(t *testing.T) {
-	dangerous := []string{"Bash", "Read", "Write", "Edit", "WebFetch", "WebSearch", "Task", "NotebookEdit", "KillShell", "mcp__other__exec", "mcp__potluck__delete"}
+	// WebSearch/WebFetch are now ALLOWED (the research surface); the host-touching tools are denied.
+	dangerous := []string{"Bash", "Read", "Write", "Edit", "Task", "NotebookEdit", "KillShell", "mcp__other__exec", "mcp__potluck__delete"}
 	for _, tool := range dangerous {
 		in := []byte(`{"tool_name":"` + tool + `","tool_input":{}}`)
 		stdout, stderr, code := Decide(in, CuratedTools)
@@ -66,7 +67,16 @@ func TestHookReasonNamesAllowedTools(t *testing.T) {
 		} `json:"hookSpecificOutput"`
 	}
 	_ = json.Unmarshal(stdout, &m)
-	if !strings.Contains(m.HookSpecificOutput.PermissionDecisionReason, "fetch_url") {
+	if !strings.Contains(m.HookSpecificOutput.PermissionDecisionReason, "read_document") {
 		t.Errorf("deny reason should list the curated tools, got %q", m.HookSpecificOutput.PermissionDecisionReason)
+	}
+}
+
+func TestHookAllowsNativeWebTools(t *testing.T) {
+	for _, tool := range []string{"WebSearch", "WebFetch"} {
+		stdout, _, code := Decide([]byte(`{"tool_name":"`+tool+`"}`), CuratedTools)
+		if decision(t, stdout) != "allow" || code != 0 {
+			t.Errorf("native web tool %q must be allowed in curated mode", tool)
+		}
 	}
 }

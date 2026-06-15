@@ -53,7 +53,7 @@ func testServer(t *testing.T) (*Server, string) {
 	if err := os.WriteFile(filepath.Join(dir, "doc.txt"), []byte("the document body"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return NewServer(tools.NewFetcher(tools.NewAllowlist(nil)), tools.NewReader(dir)), dir
+	return NewServer(tools.NewReader(dir)), dir
 }
 
 func TestInitialize(t *testing.T) {
@@ -85,11 +85,12 @@ func TestToolsListExposesExactlyCuratedTools(t *testing.T) {
 			t.Errorf("tool %v missing inputSchema", tm["name"])
 		}
 	}
-	if len(names) != 3 || !names["fetch_url"] || !names["read_document"] || !names["web_search"] {
-		t.Errorf("tool surface = %v, want exactly {fetch_url, read_document, web_search}", names)
+	// This MCP server exposes ONLY read_document now; web research uses the agent's native tools.
+	if len(names) != 1 || !names["read_document"] {
+		t.Errorf("tool surface = %v, want exactly {read_document}", names)
 	}
-	// Defense: no shell/file/web tool may ever appear here.
-	for _, forbidden := range []string{"Bash", "bash", "shell", "exec", "Read", "Write", "WebFetch"} {
+	// Defense: no shell/file tool may ever appear here.
+	for _, forbidden := range []string{"Bash", "bash", "shell", "exec", "Read", "Write"} {
 		if names[forbidden] {
 			t.Errorf("forbidden tool %q is exposed", forbidden)
 		}
@@ -117,12 +118,16 @@ func TestCallReadDocumentTraversalRefused(t *testing.T) {
 	}
 }
 
-func TestCallFetchEmptyAllowlistDenied(t *testing.T) {
+// The retired tools (fetch_url, web_search — now handled by the agent's native web tools) must
+// no longer be callable on this server.
+func TestRetiredToolsRefused(t *testing.T) {
 	s, _ := testServer(t)
-	r := run(t, s, `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"fetch_url","arguments":{"url":"https://example.com"}}}`)
-	res := r["5"]["result"].(map[string]interface{})
-	if res["isError"] != true {
-		t.Errorf("fetch with empty allowlist should be a tool error: %v", res)
+	for id, name := range map[string]string{"5": "fetch_url", "7": "web_search"} {
+		r := run(t, s, `{"jsonrpc":"2.0","id":`+id+`,"method":"tools/call","params":{"name":"`+name+`","arguments":{}}}`)
+		res := r[id]["result"].(map[string]interface{})
+		if res["isError"] != true {
+			t.Errorf("retired tool %q should be refused: %v", name, res)
+		}
 	}
 }
 

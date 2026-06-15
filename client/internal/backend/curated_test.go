@@ -17,31 +17,39 @@ func argValue(args []string, flag string) (string, bool) {
 
 func TestClaudeCuratedArgs(t *testing.T) {
 	args := claudeCuratedArgs(Request{Prompt: "summarize this", System: "curated preamble", Model: "haiku"},
-		[]string{"example.com", "arxiv.org"}, curatedDocDirInContainer, "potluck")
+		curatedDocDirInContainer, "potluck")
 
-	// --allowed-tools must be EXACTLY the two curated MCP tools — and never the inert empty form.
+	// --allowed-tools must be the curated surface: native WebSearch + WebFetch + read_document —
+	// and never the inert empty form.
 	allowed, ok := argValue(args, "--allowed-tools")
 	if !ok || allowed == "" {
 		t.Fatalf("--allowed-tools missing or empty (the v1 platform-killing bug): %v", args)
 	}
-	if !strings.Contains(allowed, "mcp__potluck__fetch_url") || !strings.Contains(allowed, "mcp__potluck__read_document") {
-		t.Errorf("--allowed-tools must list both curated tools, got %q", allowed)
+	for _, want := range []string{"WebSearch", "WebFetch", "mcp__potluck__read_document"} {
+		if !strings.Contains(allowed, want) {
+			t.Errorf("--allowed-tools must include %q, got %q", want, allowed)
+		}
 	}
-	for _, builtin := range []string{"Bash", "Read", "Write", "WebFetch"} {
+	// Shell/file builtins must NEVER be allowed.
+	for _, builtin := range []string{"Bash", "Read", "Write", "Edit"} {
 		if strings.Contains(allowed, builtin) {
-			t.Errorf("--allowed-tools must NOT contain builtin %q", builtin)
+			t.Errorf("--allowed-tools must NOT contain host-touching builtin %q", builtin)
 		}
 	}
 
-	// Builtins explicitly denied + strict MCP + hook installed.
-	if disallowed, _ := argValue(args, "--disallowed-tools"); !strings.Contains(disallowed, "Bash") {
-		t.Errorf("--disallowed-tools must deny Bash, got %q", disallowed)
+	// Disallowed denies shell/file but NOT the web tools; strict MCP + hook installed.
+	disallowed, _ := argValue(args, "--disallowed-tools")
+	if !strings.Contains(disallowed, "Bash") || !strings.Contains(disallowed, "Read") {
+		t.Errorf("--disallowed-tools must deny Bash + Read, got %q", disallowed)
+	}
+	if strings.Contains(disallowed, "WebSearch") || strings.Contains(disallowed, "WebFetch") {
+		t.Errorf("--disallowed-tools must NOT deny the web tools, got %q", disallowed)
 	}
 	if !slices.Contains(args, "--strict-mcp-config") {
 		t.Error("--strict-mcp-config must be present (ignore the user's MCP servers)")
 	}
 
-	// MCP config is valid JSON and launches our server.
+	// MCP config is valid JSON and launches our server (read_document only).
 	mcp, _ := argValue(args, "--mcp-config")
 	var mcpCfg struct {
 		MCPServers map[string]struct {
@@ -55,9 +63,6 @@ func TestClaudeCuratedArgs(t *testing.T) {
 	pot, ok := mcpCfg.MCPServers["potluck"]
 	if !ok || pot.Command != "potluck" || !slices.Contains(pot.Args, "__tools-server") {
 		t.Errorf("mcp config does not launch the potluck tools server: %+v", mcpCfg)
-	}
-	if !slices.Contains(pot.Args, "--allow") || !strings.Contains(strings.Join(pot.Args, " "), "example.com") {
-		t.Errorf("mcp config missing the fetch allowlist: %v", pot.Args)
 	}
 
 	// Settings install the PreToolUse deny hook.
@@ -76,11 +81,11 @@ func TestClaudeCuratedArgs(t *testing.T) {
 }
 
 func TestMcpConfigOmitsDocDirWhenEmpty(t *testing.T) {
-	cfg := mcpConfigJSON([]string{"example.com"}, "", "potluck")
+	cfg := mcpConfigJSON("", "potluck")
 	if strings.Contains(cfg, "--doc-dir") {
 		t.Errorf("doc-dir should be omitted when no document dir is mounted: %s", cfg)
 	}
-	cfg = mcpConfigJSON([]string{"example.com"}, "/home/potluck/work/in", "potluck")
+	cfg = mcpConfigJSON("/home/potluck/work/in", "potluck")
 	if !strings.Contains(cfg, "--doc-dir") {
 		t.Errorf("doc-dir should be present when mounted: %s", cfg)
 	}

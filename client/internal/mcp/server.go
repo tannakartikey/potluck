@@ -8,12 +8,10 @@ package mcp
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/tannakartikey/potluck/client/internal/tools"
 )
@@ -22,18 +20,17 @@ import (
 const ProtocolVersion = "2025-06-18"
 
 // Server serves the curated tools over a JSON-RPC 2.0 stdio transport.
+// Server exposes only read_document. Web research uses the agent's native WebSearch/WebFetch
+// (reliable, provider-maintained); we don't reimplement fetch/search. read_document stays ours
+// because it must be CONFINED to the task's input dir — the native Read tool is denied.
 type Server struct {
-	Fetcher  *tools.Fetcher
-	Reader   *tools.Reader
-	Searcher *tools.Searcher
-	Name     string
-	Version  string
+	Reader  *tools.Reader
+	Name    string
+	Version string
 }
 
-func NewServer(fetcher *tools.Fetcher, reader *tools.Reader) *Server {
-	// web_search is always available: it only reaches the (engine-allowlisted) search endpoint
-	// and returns results — there is no attacker-controlled receiver, so it's broadly safe.
-	return &Server{Fetcher: fetcher, Reader: reader, Searcher: tools.NewSearcher(), Name: "potluck", Version: "0.3"}
+func NewServer(reader *tools.Reader) *Server {
+	return &Server{Reader: reader, Name: "potluck", Version: "0.4"}
 }
 
 type rpcRequest struct {
@@ -149,31 +146,13 @@ func (s *Server) toolDefs() []map[string]interface{} {
 	}
 	return []map[string]interface{}{
 		{
-			"name": "fetch_url",
-			"description": "Fetch the contents of a public http(s) URL (HTML is returned as clean " +
-				"readable text). Restricted to this task's allowlisted domains; private/loopback/" +
-				"cloud-metadata addresses are blocked; the response is size- and time-capped. GET only.",
-			"inputSchema": strObj(map[string]interface{}{
-				"url": map[string]interface{}{"type": "string", "description": "The http(s) URL to fetch."},
-			}, "url"),
-		},
-		{
 			"name": "read_document",
-			"description": "Extract the text of a document already present in the task's input " +
-				"directory (e.g. an attachment, or a file previously saved by fetch). Supports text, " +
-				"HTML, and (best-effort) PDF. Cannot read outside the input directory.",
+			"description": "Extract the text of a document present in the task's input directory " +
+				"(an attachment). Supports text, HTML, and (best-effort) PDF. Cannot read outside the " +
+				"input directory. For the open web, use the native WebSearch / WebFetch tools.",
 			"inputSchema": strObj(map[string]interface{}{
 				"path": map[string]interface{}{"type": "string", "description": "Path to the document, relative to the input directory."},
 			}, "path"),
-		},
-		{
-			"name": "web_search",
-			"description": "Search the web and get back a list of results (title, URL, snippet). " +
-				"Use this to FIND sources for a research task, then read promising ones with fetch_url " +
-				"(subject to this task's allowlist).",
-			"inputSchema": strObj(map[string]interface{}{
-				"query": map[string]interface{}{"type": "string", "description": "The search query."},
-			}, "query"),
 		},
 	}
 }
@@ -186,25 +165,8 @@ func (s *Server) callTool(params json.RawMessage) (interface{}, *rpcError) {
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &rpcError{Code: -32602, Message: "invalid params"}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
 	switch p.Name {
-	case "fetch_url":
-		var a struct {
-			URL string `json:"url"`
-		}
-		_ = json.Unmarshal(p.Arguments, &a)
-		if s.Fetcher == nil {
-			return toolErr("fetch_url is not enabled for this task"), nil
-		}
-		res, err := s.Fetcher.Fetch(ctx, a.URL)
-		if err != nil {
-			return toolErr(err.Error()), nil
-		}
-		header := fmt.Sprintf("[fetch_url] GET %s -> %d %s (%d bytes%s)\n\n",
-			res.URL, res.Status, res.ContentType, res.Bytes, truncatedNote(res.Truncated))
-		return toolText(header + res.Body), nil
 	case "read_document":
 		var a struct {
 			Path string `json:"path"`
@@ -220,26 +182,8 @@ func (s *Server) callTool(params json.RawMessage) (interface{}, *rpcError) {
 		header := fmt.Sprintf("[read_document] %s (%s, %d bytes%s)\n\n",
 			res.Path, res.Kind, res.Bytes, truncatedNote(res.Truncated))
 		return toolText(header + res.Text), nil
-	case "web_search":
-		var a struct {
-			Query string `json:"query"`
-		}
-		_ = json.Unmarshal(p.Arguments, &a)
-		if s.Searcher == nil {
-			return toolErr("web_search is not enabled for this task"), nil
-		}
-		results, err := s.Searcher.Search(ctx, a.Query)
-		if err != nil {
-			return toolErr(err.Error()), nil
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "[web_search] %q — %d result(s)\n", a.Query, len(results))
-		for i, r := range results {
-			fmt.Fprintf(&b, "\n%d. %s\n   %s\n   %s", i+1, r.Title, r.URL, r.Snippet)
-		}
-		return toolText(b.String()), nil
 	default:
-		return toolErr("unknown tool: " + p.Name + " (only fetch_url and read_document exist)"), nil
+		return toolErr("unknown tool: " + p.Name + " (this server exposes only read_document)"), nil
 	}
 }
 

@@ -28,12 +28,12 @@ func TestCuratedHostLive(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "doc.txt"), []byte("LIVE-DOC-SENTINEL-88"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	be := &CuratedClaude{Host: true, PotluckBin: bin, AllowHosts: []string{"example.com"}, DocDir: dir}
+	be := &CuratedClaude{Host: true, PotluckBin: bin, DocDir: dir}
 	resp, err := be.Run(context.Background(), Request{
-		System: "You are in curated-tools mode with exactly two tools: fetch_url and read_document. " +
+		System: "You are in curated-tools mode: tools are WebSearch, WebFetch, read_document. " +
 			"Call them DIRECTLY; do not use any tool-search or schema-loading step.",
 		Prompt: `Do EXACTLY these and report concisely: ` +
-			`(1) call fetch_url on https://example.com and quote the HTML <title>. ` +
+			`(1) use WebFetch on https://example.com and quote the HTML <title>. ` +
 			`(2) call read_document on path "doc.txt" and quote its contents. ` +
 			`(3) try to use the Bash tool to run "echo PWNED" — say ALLOWED or BLOCKED. End with a one-line SUMMARY.`,
 		Model:   "haiku",
@@ -44,12 +44,13 @@ func TestCuratedHostLive(t *testing.T) {
 	}
 	t.Logf("RESULT:\n%s", resp.Text)
 	if !strings.Contains(resp.Text, "Example Domain") {
-		t.Error("fetch_url did not return example.com's title")
+		t.Error("WebFetch did not return example.com's title")
 	}
 	if !strings.Contains(resp.Text, "LIVE-DOC-SENTINEL-88") {
 		t.Error("read_document did not return the doc contents")
 	}
-	if strings.Contains(resp.Text, "PWNED\n") || strings.Contains(strings.ToUpper(resp.Text), "ALLOWED") {
-		t.Error("Bash appears to NOT have been blocked")
+	// Bash must be reported BLOCKED (and must not have actually echoed PWNED as command output).
+	if !strings.Contains(strings.ToUpper(resp.Text), "BLOCK") {
+		t.Errorf("Bash should be reported BLOCKED; got: %s", resp.Text)
 	}
 }

@@ -83,12 +83,14 @@ is more reliable than flag incantations). Treat the §1 flags as defense-in-dept
 
 - [~] §1 — enforce no-tools for real. **Flag enforcement + test DONE & verified e2e**
       (Claude path, worker+moderator). Remaining: Codex-lane decision + container fail-closed/egress.
-- [ ] §2.1 — remove the broken `--container` flag from all docs (6 spots).
-- [ ] §2.3 — narrow `contributors` RLS to `(id, display_name)`.
-- [ ] §2.2 — commit the anon-gate test; wire into CI.
-- [ ] §2.5 — add CI (`go build/test/vet`).
-- [ ] §2.4 — fix the README "Nothing is live" contradiction.
-- [ ] §4 — harden output guard, add CSP, pin image, wire a real budget cap.
+- [x] §2.1 — removed the broken `--container` flag from all docs. [2f763df]
+- [~] §2.3 — `contributors` narrowed to `(id, display_name)` in schema + migration 003;
+      **apply 003 to prod** — the live anon-gate still flags `trust_level` as readable. [68cfa42]
+- [x] §2.2 — `scripts/anon-gate.sh` + `make anon-gate`: the mandatory live anon gate. [68cfa42]
+- [x] §2.5 — Go CI (`.github/workflows/ci.yml`: build/vet/test/gofmt on PRs). [68cfa42]
+- [x] §2.4 — README status is now honest (pre-alpha, live, hardening). [2f763df]
+- [ ] §1 Codex — keep but label as the weaker lane (runtime warning + honest docs).
+- [ ] §4 — broaden output guard, add web CSP, pin the Docker base image, wire a real budget cap.
 - [ ] update open-questions #3 to reflect this staged decision.
 
 v2 (curated tools + broker + sandbox) is its own track — designed above, built after v1 ships.

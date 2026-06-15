@@ -183,12 +183,26 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (*FetchResult, error
 		body = body[:maxBytes]
 	}
 
+	ctype := resp.Header.Get("Content-Type")
+	// Reader-mode: for HTML, return clean readable TEXT (script/style + tag stripped) instead of
+	// raw markup — far more useful for a research/read task, and much smaller. Other content
+	// types (text, json, …) pass through unchanged.
+	out := string(body)
+	if isHTMLContentType(ctype) {
+		out = stripHTML(body)
+	}
+
 	return &FetchResult{
 		URL:         resp.Request.URL.String(),
 		Status:      resp.StatusCode,
-		ContentType: resp.Header.Get("Content-Type"),
-		Body:        string(body),
+		ContentType: ctype,
+		Body:        out,
 		Truncated:   truncated,
-		Bytes:       len(body),
+		Bytes:       len(out),
 	}, nil
+}
+
+func isHTMLContentType(ct string) bool {
+	ct = strings.ToLower(ct)
+	return strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml")
 }

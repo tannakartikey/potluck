@@ -87,6 +87,28 @@ func TestFetchDialerBlocksLoopbackEvenIfAllowlisted(t *testing.T) {
 	}
 }
 
+func TestFetchHTMLReaderMode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, `<html><head><style>.x{color:red}</style><script>evil()</script></head>`+
+			`<body><h1>Heading</h1><p>Real article text here.</p></body></html>`)
+	}))
+	defer srv.Close()
+
+	f := NewFetcher(NewAllowlist([]string{"127.0.0.1"}))
+	f.blockIP = relaxLoopback
+	res, err := f.Fetch(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Body, "Heading") || !strings.Contains(res.Body, "Real article text here.") {
+		t.Errorf("reader-mode text missing: %q", res.Body)
+	}
+	if strings.Contains(res.Body, "<p>") || strings.Contains(res.Body, "evil()") || strings.Contains(res.Body, "color:red") {
+		t.Errorf("HTML markup/script/style leaked into reader-mode body: %q", res.Body)
+	}
+}
+
 func TestFetchSizeCap(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, strings.Repeat("A", 1000))

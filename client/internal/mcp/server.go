@@ -150,9 +150,9 @@ func (s *Server) toolDefs() []map[string]interface{} {
 	return []map[string]interface{}{
 		{
 			"name": "fetch_url",
-			"description": "Fetch the contents of a public http(s) URL. Restricted to this task's " +
-				"allowlisted domains; private/loopback/cloud-metadata addresses are blocked; the " +
-				"response is size- and time-capped. Read-only GET only.",
+			"description": "Fetch the contents of a public http(s) URL (HTML is returned as clean " +
+				"readable text). Restricted to this task's allowlisted domains; private/loopback/" +
+				"cloud-metadata addresses are blocked; the response is size- and time-capped. GET only.",
 			"inputSchema": strObj(map[string]interface{}{
 				"url": map[string]interface{}{"type": "string", "description": "The http(s) URL to fetch."},
 			}, "url"),

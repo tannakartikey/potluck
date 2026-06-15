@@ -108,14 +108,16 @@ run flags:
   --image NAME      container image (default potluck-runner:latest)
   --docker-memory   container memory limit (default 2g)
   --docker-cpus     container CPU limit (default 2)
-  --phase2          OPT-IN v2 curated-tools sandbox: the agent may use fetch_url +
-                    read_document (NO raw shell) inside a hardened, default-deny-egress
-                    container, reaching the provider only via a credential broker.
-                    FAILS CLOSED — needs ANTHROPIC_API_KEY + Docker + the phase-2 image
-                    (docker build -t potluck-sandbox:phase2 -f docker/Dockerfile.phase2 .),
-                    and refuses rather than falling back to the host. v1 no-tools is default.
-  --fetch-allow a,b phase2: fetch_url host allowlist (default-deny; YOU control egress)
-  --doc-dir DIR     phase2: host dir mounted read-only as the read_document input
+  CURATED TOOLS ARE THE DEFAULT (Claude Code): the agent may use fetch_url +
+  read_document (NO raw shell). It auto-picks the strongest lane and degrades — never
+  refuses: ANTHROPIC_API_KEY + Docker + the sandbox image → broker + hardened container;
+  otherwise → host curated (the curated tool surface is the boundary, no container backstop).
+  --no-tools        strict v1 no-tools mode (escape hatch)
+  --phase2          force the strongest lane (broker + hardened container) and FAIL CLOSED
+                    if it can't come up (needs ANTHROPIC_API_KEY + Docker + the image:
+                    docker build -t potluck-sandbox:phase2 -f docker/Dockerfile.phase2 .)
+  --fetch-allow a,b fetch_url host allowlist (default-deny; YOU control egress)
+  --doc-dir DIR     directory read_document may read (mounted read-only in a container)
 
 moderate flags:
   --backend B       claude-code | codex (default: config / claude-code)
@@ -174,20 +176,22 @@ func cmdRun(args []string) {
 	image := fs.String("image", "", "container image to use (default potluck-runner:latest)")
 	dockerMem := fs.String("docker-memory", "2g", "container memory limit")
 	dockerCPUs := fs.String("docker-cpus", "2", "container CPU limit")
-	phase2 := fs.Bool("phase2", false, "OPT-IN v2 curated-tools sandbox (fetch_url + read_document via broker + hardened container; fail-closed)")
-	fetchAllow := fs.String("fetch-allow", "", "phase2: comma-separated fetch_url host allowlist (default-deny; you control egress)")
-	docDir := fs.String("doc-dir", "", "phase2: host directory mounted read-only as the read_document input dir")
+	phase2 := fs.Bool("phase2", false, "force the strongest curated lane (broker + hardened container) and FAIL CLOSED if it can't come up")
+	noTools := fs.Bool("no-tools", false, "strict v1 no-tools mode (escape hatch; curated tools are the default)")
+	fetchAllow := fs.String("fetch-allow", "", "fetch_url host allowlist (default-deny; you control egress)")
+	docDir := fs.String("doc-dir", "", "directory the read_document tool may read (mounted read-only in a container)")
 	_ = fs.Parse(args)
 
+	curatedOpts := runner.Options{
+		Topics:       splitCSV(*topics),
+		BudgetTokens: pickInt(*budget, 16000),
+		Model:        firstNonEmpty(*model, "haiku"),
+		MaxTasks:     *maxTasks,
+		Watch:        *watch,
+		PollSeconds:  *poll,
+	}
 	if *phase2 {
-		cmdRunPhase2(*image, *fetchAllow, *docDir, *dockerMem, *dockerCPUs, runner.Options{
-			Topics:       splitCSV(*topics),
-			BudgetTokens: pickInt(*budget, 16000),
-			Model:        firstNonEmpty(*model, "haiku"),
-			MaxTasks:     *maxTasks,
-			Watch:        *watch,
-			PollSeconds:  *poll,
-		})
+		cmdRunPhase2(*image, *fetchAllow, *docDir, *dockerMem, *dockerCPUs, curatedOpts)
 		return
 	}
 
@@ -204,6 +208,17 @@ func cmdRun(args []string) {
 	if chosen == "" {
 		chosen = "claude-code"
 	}
+
+	// DEFAULT = curated tools. Claude Code gets the real curated lane (MCP-only fetch_url +
+	// read_document), auto-degrading from broker+container to host. --no-tools is the strict v1
+	// escape hatch; Codex can't be MCP-only (it always keeps a shell), so it stays on the
+	// hardened container path, labelled the weaker lane.
+	if !*noTools && chosen == "claude-code" {
+		curatedOpts.Model = firstNonEmpty(*model, cfg.Model, "haiku")
+		cmdRunCurated(key, *image, *fetchAllow, *docDir, *dockerMem, *dockerCPUs, !*noContainer, curatedOpts)
+		return
+	}
+
 	be := buildBackend(chosen, !*noContainer, *image, *dockerMem, *dockerCPUs)
 	if chosen != "claude-code" && (*maxWeek > 0 || *maxSession > 0) {
 		fmt.Fprintf(os.Stderr, "note: --max-week/--max-session need plan-usage reporting (Claude Code only); ignored for %s.\n", chosen)

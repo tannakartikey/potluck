@@ -91,11 +91,71 @@ func cmdRunPhase2(image, fetchAllow, docDir, mem, cpus string, opts runner.Optio
 	}
 }
 
-func firstNonEmpty(v, d string) string {
-	if v != "" {
-		return v
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
 	}
-	return d
+	return ""
+}
+
+// cmdRunCurated is the DEFAULT run path: curated tools (fetch_url + read_document), picking the
+// strongest available lane and DEGRADING (never refusing) to the host. Strong lane = API key +
+// Docker + image → broker + hardened container. Otherwise → host curated, where the credential
+// is still safe because the agent's only tools are the curated two (no shell/file), just without
+// the container backstop (the weaker tier; worst case for a subscription token = rate-limit).
+func cmdRunCurated(key, image, fetchAllow, docDir, mem, cpus string, container bool, opts runner.Options) {
+	if image == "" {
+		image = sandbox.DefaultImage
+	}
+	run := func(name string, a ...string) ([]byte, error) { return exec.Command(name, a...).CombinedOutput() }
+	haveKey := os.Getenv("ANTHROPIC_API_KEY") != ""
+	strong := container && haveKey && sandbox.Preflight(run, image, haveKey) == nil
+
+	opts.SystemOverride = curatedPreamble
+	var be backend.Backend
+
+	if strong {
+		fmt.Println("🧪 potluck — curated tools · broker + hardened container (strongest lane)")
+		if err := sandbox.EnsureNetworks(run); err != nil {
+			fmt.Fprintln(os.Stderr, "error setting up egress networks:", err)
+			os.Exit(1)
+		}
+		if err := sandbox.StartBroker(run, image, "ANTHROPIC_API_KEY", broker.DefaultUpstream); err != nil {
+			fmt.Fprintln(os.Stderr, "error starting credential broker:", err)
+			os.Exit(1)
+		}
+		defer sandbox.Teardown(run)
+		be = &backend.CuratedClaude{Image: image, AllowHosts: splitCSV(fetchAllow), DocDir: docDir, Memory: mem, CPUs: cpus}
+	} else {
+		exe, _ := os.Executable()
+		fmt.Printf("🧪 potluck — curated tools · HOST mode (%s)\n", hostLaneReason(container, haveKey))
+		fmt.Fprintln(os.Stderr, "   note: no container backstop — the curated tool surface (fetch_url + read_document, no shell/files) is the boundary. Set ANTHROPIC_API_KEY + build the sandbox image for the strongest isolation.")
+		be = &backend.CuratedClaude{Host: true, PotluckBin: exe, AllowHosts: splitCSV(fetchAllow), DocDir: docDir}
+	}
+	if fetchAllow == "" {
+		fmt.Fprintln(os.Stderr, "   fetch_url: no --fetch-allow set → it denies ALL hosts (read_document still works).")
+	}
+
+	fmt.Println(disclaimerLine)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := runner.Run(ctx, api.New(), be, key, opts); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+
+func hostLaneReason(container, haveKey bool) string {
+	switch {
+	case !container:
+		return "--no-container set"
+	case !haveKey:
+		return "no ANTHROPIC_API_KEY — subscription/OAuth can't be brokered"
+	default:
+		return "Docker or the sandbox image isn't ready"
+	}
 }
 
 // These __-prefixed subcommands are INTERNAL plumbing for the v2 curated-tools sandbox, not

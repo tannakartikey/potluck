@@ -17,7 +17,7 @@ func argValue(args []string, flag string) (string, bool) {
 
 func TestClaudeCuratedArgs(t *testing.T) {
 	args := claudeCuratedArgs(Request{Prompt: "summarize this", System: "curated preamble", Model: "haiku"},
-		[]string{"example.com", "arxiv.org"}, curatedDocDirInContainer)
+		[]string{"example.com", "arxiv.org"}, curatedDocDirInContainer, "potluck")
 
 	// --allowed-tools must be EXACTLY the two curated MCP tools — and never the inert empty form.
 	allowed, ok := argValue(args, "--allowed-tools")
@@ -76,11 +76,11 @@ func TestClaudeCuratedArgs(t *testing.T) {
 }
 
 func TestMcpConfigOmitsDocDirWhenEmpty(t *testing.T) {
-	cfg := mcpConfigJSON([]string{"example.com"}, "")
+	cfg := mcpConfigJSON([]string{"example.com"}, "", "potluck")
 	if strings.Contains(cfg, "--doc-dir") {
 		t.Errorf("doc-dir should be omitted when no document dir is mounted: %s", cfg)
 	}
-	cfg = mcpConfigJSON([]string{"example.com"}, "/home/potluck/work/in")
+	cfg = mcpConfigJSON([]string{"example.com"}, "/home/potluck/work/in", "potluck")
 	if !strings.Contains(cfg, "--doc-dir") {
 		t.Errorf("doc-dir should be present when mounted: %s", cfg)
 	}

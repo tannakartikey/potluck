@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -25,16 +26,25 @@ const curatedDocDirInContainer = "/home/potluck/work/in"
 type CuratedClaude struct {
 	Image      string
 	AllowHosts []string // fetch_url host allowlist — contributor-controlled egress, default-deny
-	DocDir     string   // host dir mounted read-only as the document input dir (optional)
+	DocDir     string   // document input dir (mounted ro in a container; used directly on host)
 	Memory     string
 	CPUs       string
+
+	// Host runs curated mode directly on the host (no container) — the subscription / no-Docker
+	// lane. The credential is still safe because the agent's ONLY tools are the curated MCP two
+	// (verified live: Bash blocked, fetch_url/read_document work); but there is no container
+	// backstop, so this is the weaker tier (worst case for a subscription token = rate-limit).
+	Host bool
+	// PotluckBin is the path the agent CLI uses to launch the MCP tools server + the deny hook.
+	// In a container it's "potluck" (on PATH in the image); on the host it's this binary's abs path.
+	PotluckBin string
 }
 
 func (c *CuratedClaude) Name() string { return "claude-code-curated" }
 
 // mcpConfigJSON tells Claude Code to launch our stdio MCP server (the potluck binary in the
 // image) as the ONLY MCP server, configured with this task's fetch allowlist + doc dir.
-func mcpConfigJSON(allowHosts []string, docDir string) string {
+func mcpConfigJSON(allowHosts []string, docDir, potluckBin string) string {
 	srvArgs := []string{"__tools-server"}
 	if len(allowHosts) > 0 {
 		srvArgs = append(srvArgs, "--allow", strings.Join(allowHosts, ","))
@@ -44,7 +54,7 @@ func mcpConfigJSON(allowHosts []string, docDir string) string {
 	}
 	cfg := map[string]interface{}{
 		"mcpServers": map[string]interface{}{
-			"potluck": map[string]interface{}{"command": "potluck", "args": srvArgs},
+			"potluck": map[string]interface{}{"command": potluckBin, "args": srvArgs},
 		},
 	}
 	b, _ := json.Marshal(cfg)
@@ -53,13 +63,13 @@ func mcpConfigJSON(allowHosts []string, docDir string) string {
 
 // hookSettingsJSON installs the PreToolUse deny-all-except-curated hook (the robust boundary
 // per prelaunch §0.4): it runs `potluck __hook` before every tool call.
-func hookSettingsJSON() string {
+func hookSettingsJSON(potluckBin string) string {
 	cfg := map[string]interface{}{
 		"hooks": map[string]interface{}{
 			"PreToolUse": []interface{}{
 				map[string]interface{}{
 					"matcher": "*",
-					"hooks":   []interface{}{map[string]interface{}{"type": "command", "command": "potluck __hook"}},
+					"hooks":   []interface{}{map[string]interface{}{"type": "command", "command": potluckBin + " __hook"}},
 				},
 			},
 		},
@@ -77,15 +87,18 @@ func hookSettingsJSON() string {
 //  5. the PreToolUse hook denies anything not on the curated allowlist (the real backstop).
 //
 // Note: we never use the inert --allowed-tools "" (the platform-killing v1 bug).
-func claudeCuratedArgs(req Request, allowHosts []string, docDir string) []string {
+func claudeCuratedArgs(req Request, allowHosts []string, docDir, potluckBin string) []string {
+	if potluckBin == "" {
+		potluckBin = "potluck"
+	}
 	args := []string{
 		"-p", req.Prompt,
 		"--output-format", "json",
 		"--strict-mcp-config",
-		"--mcp-config", mcpConfigJSON(allowHosts, docDir),
+		"--mcp-config", mcpConfigJSON(allowHosts, docDir, potluckBin),
 		"--allowed-tools", strings.Join(curatedAllowedTools, " "),
 		"--disallowed-tools", noToolsDenyList,
-		"--settings", hookSettingsJSON(),
+		"--settings", hookSettingsJSON(potluckBin),
 	}
 	if req.System != "" {
 		args = append(args, "--system-prompt", req.System)
@@ -106,14 +119,21 @@ func (c *CuratedClaude) Run(ctx context.Context, req Request) (*Response, error)
 		defer cancel()
 	}
 
+	if c.Host {
+		return c.runHost(ctx, req)
+	}
+	return c.runContainer(ctx, req)
+}
+
+// runContainer runs curated mode inside the hardened sandbox (strongest lane).
+func (c *CuratedClaude) runContainer(ctx context.Context, req Request) (*Response, error) {
 	docDirInContainer := ""
 	var mounts []string
 	if c.DocDir != "" {
 		docDirInContainer = curatedDocDirInContainer
 		mounts = append(mounts, c.DocDir+":"+curatedDocDirInContainer+":ro")
 	}
-
-	cargs := claudeCuratedArgs(req, c.AllowHosts, docDirInContainer)
+	cargs := claudeCuratedArgs(req, c.AllowHosts, docDirInContainer, "potluck") // potluck is on PATH in the image
 	env := []string{
 		// The container starts from a clean env (image ENV only): the real key is simply never
 		// passed in. The agent gets the broker URL + a placeholder, so a dump-env finds no key.
@@ -130,6 +150,28 @@ func (c *CuratedClaude) Run(ctx context.Context, req Request) (*Response, error)
 			return nil, fmt.Errorf("curated run (docker) exited: %v: %s", err, strings.TrimSpace(string(ee.Stderr)))
 		}
 		return nil, fmt.Errorf("curated run (docker): %w", err)
+	}
+	return parseClaudeResult(out, req.Model)
+}
+
+// runHost runs curated mode directly on the host (subscription / no-Docker lane). No container
+// backstop, but the agent's ONLY tools are the curated MCP two + the deny hook, so it cannot
+// read the credential, files, or run shell. The CLI authenticates with the contributor's own
+// account/key as usual (we don't touch its env). Verified live: Bash blocked; the two tools work.
+func (c *CuratedClaude) runHost(ctx context.Context, req Request) (*Response, error) {
+	bin := c.PotluckBin
+	if bin == "" {
+		bin = "potluck"
+	}
+	cargs := claudeCuratedArgs(req, c.AllowHosts, c.DocDir, bin)
+	cmd := exec.CommandContext(ctx, "claude", cargs...)
+	cmd.Dir = os.TempDir() // no local CLAUDE.md / project files auto-discovered
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("curated run (host) exited: %v: %s", err, strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, fmt.Errorf("curated run (host): %w", err)
 	}
 	return parseClaudeResult(out, req.Model)
 }

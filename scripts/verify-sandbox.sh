@@ -6,9 +6,17 @@
 #   usage: bash scripts/verify-sandbox.sh
 #   needs: Docker, and the image built:
 #          docker build -t potluck-sandbox:phase2 -f docker/Dockerfile.phase2 .
+#   dev shortcut (no full image build — behaviourally identical): run against any
+#   node-based image + a host-built linux potluck binary, e.g.
+#     CGO_ENABLED=0 GOOS=linux go -C client build -o /tmp/potluck-linux ./cmd/potluck
+#     POTLUCK_SANDBOX_IMAGE=potluck-runner:latest POTLUCK_BIN=/tmp/potluck-linux bash scripts/verify-sandbox.sh
 set -uo pipefail
 
 IMAGE="${POTLUCK_SANDBOX_IMAGE:-potluck-sandbox:phase2}"
+# POTLUCK_BIN: optional path to a linux potluck binary to bind-mount in (lets the script run
+# against a base image + host binary without the full image build — behaviourally identical).
+BIND=()
+if [ -n "${POTLUCK_BIN:-}" ]; then BIND=(-v "${POTLUCK_BIN}:/usr/local/bin/potluck:ro"); fi
 EGRESS=potluck-egress-verify
 PUBLIC=potluck-public-verify
 BROKER=potluck-broker-verify
@@ -50,8 +58,8 @@ echo "$OUT" | grep -q "NoNewPrivs:.*1"             && pass "no-new-privileges se
 
 # ── 2. The potluck binary + curated tools are present in the image ──
 echo "[2] in-container tooling"
-docker run --rm "$IMAGE" potluck version >/dev/null 2>&1 && pass "potluck binary present" || bad "potluck binary missing"
-HOOK=$(echo '{"tool_name":"Bash"}' | docker run --rm -i "$IMAGE" potluck __hook 2>/dev/null)
+docker run --rm "${BIND[@]}" "$IMAGE" potluck version >/dev/null 2>&1 && pass "potluck binary present" || bad "potluck binary missing"
+HOOK=$(echo '{"tool_name":"Bash"}' | docker run --rm -i "${BIND[@]}" "$IMAGE" potluck __hook 2>/dev/null)
 echo "$HOOK" | grep -q '"permissionDecision":"deny"' && pass "deny-hook blocks Bash in-image" || bad "deny-hook did not block Bash"
 
 # ── 3. Default-deny egress: agent reaches ONLY the broker, never the internet ──
@@ -60,14 +68,14 @@ docker network create --internal "$EGRESS" >/dev/null 2>&1
 docker network create "$PUBLIC" >/dev/null 2>&1
 # Broker sidecar (fake key — we test reachability/topology, not real forwarding).
 docker run -d --rm --name "$BROKER" --network "$EGRESS" \
-  -e ANTHROPIC_API_KEY=sk-ant-FAKE-verify \
+  -e ANTHROPIC_API_KEY=sk-ant-FAKE-verify "${BIND[@]}" \
   "$IMAGE" potluck __broker --addr 0.0.0.0:8787 >/dev/null 2>&1
 docker network connect "$PUBLIC" "$BROKER" >/dev/null 2>&1
 sleep 2
 
 PROBE='async function p(u){try{const r=await fetch(u,{signal:AbortSignal.timeout(4000)});return "REACHED "+r.status}catch(e){return "BLOCKED "+((e.message||e.name||"e").slice(0,30))}}
 (async()=>{console.log("broker:",await p("http://'"$BROKER"':8787/v1/messages"));console.log("internet:",await p("https://example.com"));})();'
-AGENT=$(docker run --rm --network "$EGRESS" "$IMAGE" node -e "$PROBE" 2>&1)
+AGENT=$(docker run --rm --network "$EGRESS" "${BIND[@]}" "$IMAGE" node -e "$PROBE" 2>&1)
 echo "$AGENT"
 echo "$AGENT" | grep -q "broker: REACHED"   && pass "agent can reach the broker sidecar"            || bad "agent cannot reach the broker"
 echo "$AGENT" | grep -q "internet: BLOCKED" && pass "agent CANNOT reach the internet (default-deny)" || bad "agent reached the internet (egress NOT denied)"

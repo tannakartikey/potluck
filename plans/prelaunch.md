@@ -84,14 +84,16 @@ is more reliable than flag incantations). Treat the §1 flags as defense-in-dept
 - [~] §1 — enforce no-tools for real. **Flag enforcement + test DONE & verified e2e**
       (Claude path, worker+moderator). Remaining: Codex-lane decision + container fail-closed/egress.
 - [x] §2.1 — removed the broken `--container` flag from all docs. [2f763df]
-- [~] §2.3 — `contributors` narrowed to `(id, display_name)` in schema + migration 003;
-      **apply 003 to prod** — the live anon-gate still flags `trust_level` as readable. [68cfa42]
+- [x] §2.3 — `contributors` narrowed to `(id, display_name)` (schema + migration 003);
+      **003 applied to prod — anon-gate PASSES** (trust_level no longer anon-readable). [68cfa42]
 - [x] §2.2 — `scripts/anon-gate.sh` + `make anon-gate`: the mandatory live anon gate. [68cfa42]
 - [x] §2.5 — Go CI (`.github/workflows/ci.yml`: build/vet/test/gofmt on PRs). [68cfa42]
 - [x] §2.4 — README status is now honest (pre-alpha, live, hardening). [2f763df]
-- [ ] §1 Codex — keep but label as the weaker lane (runtime warning + honest docs).
-- [ ] §4 — broaden output guard, add web CSP, pin the Docker base image, wire a real budget cap.
-- [ ] update open-questions #3 to reflect this staged decision.
+- [x] §1 Codex — kept, labeled the weaker lane (runtime warning in main.go + AGENTS.md note). [27a7bb0]
+- [~] §4 — output guard broadened ✓, web CSP ✓, agent-CLI versions pinned ✓ [27a7bb0]. Remaining:
+      base-image digest pin (needs registry access) + per-run budget cap (deferred — lower risk now
+      tools are off: single turn + 5-min wall-clock bound the spend).
+- [x] open-questions #3 — updated to the staged v1→v2 decision.
 
 v2 (curated tools + broker + sandbox) is its own track — designed above, built after v1 ships.
 

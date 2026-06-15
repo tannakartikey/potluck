@@ -18,12 +18,20 @@ Potluck never receives, stores, proxies, or pools any credential. Pooling is
 a central target) and a Terms-of-Service violation pattern (providers actively
 enforce against credential routing). Side benefit: BYO means *any* agent works.
 
-## 3. v1 task scope — **[locked: text + image input, text output, no tools]**
+## 3. v1 task scope — **[v1: text+image input, text output, no tools · v2: curated tools behind broker+sandbox]**
 
 Read / summarize / explain / digest. Image **inputs** are allowed (the agent
 describes them); the output is always text. **No** shell, files, web, or code
 execution — that's what makes a stranger's task safe to run on your machine.
 Coding tasks are a separate, much later track behind real sandboxing.
+
+**Update (2026-06-15) — staged, not permanent.** v1 ships **no-tools, enforced for real**
+(the runner now explicitly *denies* tools; `--allowed-tools ""` was a no-op — see
+[`plans/prelaunch.md`](prelaunch.md) §1). The longer arc is **capability-first**: v2 gives the
+agent a small set of *curated, project-implemented* tools (allowlisted `fetch_url`,
+`read_document`) behind a **credential broker** (API-key path) + a **hardened, fail-closed
+container** — never raw shell. The four-layer model + broker are in `plans/prelaunch.md` §0.
+"No tools" stays the v1 guarantee; it is no longer a permanent ceiling.
 
 **v0 launches with NON-HARMFUL tasks only.** Beyond the no-tools invariant, the launch content scope
 is deliberately benign (knowledge/explanation/drafting), screened by trusted-moderator AI moderation

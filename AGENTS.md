@@ -91,7 +91,7 @@ potluck run --topics ruby,rails --max-week 90
 | "run on the host (skip the Docker sandbox)" | `--no-container` (the container is the **default**; the host path is still no-tools safe mode) |
 | "stop at 90% of my weekly limit / keep headroom for myself" | `--max-week 90` (Claude Code) |
 | "just do 3 tasks" / "keep going until I stop" | `--max-tasks 3` / `--watch` |
-| "use Codex" / "use haiku" | `--backend codex` / `--model haiku` |
+| "use Codex" / "use haiku" | `--backend codex` / `--model haiku` — note: Codex is read-only-sandbox, **not** hard no-tools; Claude Code is the safer default |
 | "only tasks needing ≤ N tokens" | `--budget N` |
 
 So a human can just say *"install Potluck, donate my spare Claude credits to ruby/rails tasks in a

@@ -90,9 +90,12 @@ is more reliable than flag incantations). Treat the §1 flags as defense-in-dept
 - [x] §2.5 — Go CI (`.github/workflows/ci.yml`: build/vet/test/gofmt on PRs). [68cfa42]
 - [x] §2.4 — README status is now honest (pre-alpha, live, hardening). [2f763df]
 - [x] §1 Codex — kept, labeled the weaker lane (runtime warning in main.go + AGENTS.md note). [27a7bb0]
-- [~] §4 — output guard broadened ✓, web CSP ✓, agent-CLI versions pinned ✓ [27a7bb0]. Remaining:
-      base-image digest pin (needs registry access) + per-run budget cap (deferred — lower risk now
-      tools are off: single turn + 5-min wall-clock bound the spend).
+- [x] §4 (v1 slice) — output guard broadened ✓, web CSP ✓, agent-CLIs pinned ✓, safe-mode docs
+      corrected to match code ✓ [27a7bb0, 85dd7ff].
+- [ ] Deferred (NOT v1-blocking): `subtasks` pending/rejected RLS exposure — needs a key-gated
+      moderation-queue RPC first (moderation reads pending via anon SELECT, api.go:248); per-run $
+      budget cap (lower risk now tools are off); base-image digest pin (needs registry); container
+      fail-closed + egress, image-inputs, `--user`, keep-alive cron, version stamping → v1.1 / v2.
 - [x] open-questions #3 — updated to the staged v1→v2 decision.
 
 v2 (curated tools + broker + sandbox) is its own track — designed above, built after v1 ships.

@@ -43,7 +43,12 @@ async function count(table, q = "select=id") {
 
 /* ───────── count-up animation ───────── */
 function animateCount(el, to) {
-  const dur = 900, t0 = performance.now(), from = 0;
+  // Tween from the last value shown on this element (0 on first paint) — so the 10s
+  // stats refresh eases from the current number instead of snapping back to 0 each time.
+  const from = el._potluckVal || 0;
+  el._potluckVal = to;
+  if (from === to) { el.textContent = compact(to); return; }
+  const dur = 900, t0 = performance.now();
   const ease = (x) => 1 - Math.pow(1 - x, 3);
   function tick(now) {
     const p = Math.min(1, (now - t0) / dur);
@@ -194,6 +199,22 @@ async function load() {
   if (mode) { mode.textContent = ok ? "live data" : "sample data"; mode.classList.add(ok ? "live" : "sample"); }
 }
 
+/* ───────── periodic stats refresh (every 10s) ───────── */
+// Re-fetch just the four hero counters and re-render them — no board/gallery re-render, so
+// there's no flicker. Static in sample mode; pauses while the tab is hidden. On a network
+// hiccup we keep the last good numbers rather than flash zeros.
+async function refreshStats() {
+  if (SRC.mode !== "live" || document.hidden) return;
+  const [tokenRows, open, people] = await Promise.all([
+    get("results", "select=token_count"),
+    count("subtasks", "status=eq.open&select=id"),
+    count("contributors"),
+  ]);
+  if (open == null || people == null) return;
+  const tokens = (tokenRows || []).reduce((s, r) => s + (r.token_count || 0), 0);
+  renderStats({ tokens, done: (tokenRows || []).length, open, people });
+}
+
 /* ───────── chrome: nav, search, copy ───────── */
 function initChrome() {
   const nav = $("#nav");
@@ -235,3 +256,4 @@ function initChrome() {
 
 initChrome();
 load();
+setInterval(refreshStats, 10000);   // keep the hero stats fresh (live mode; skips while tab hidden)

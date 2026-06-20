@@ -126,9 +126,14 @@ alter table categories       enable row level security;
 alter table subtasks         enable row level security;
 alter table results          enable row level security;
 
+-- drop-then-create so a full re-apply of this schema is idempotent (CREATE POLICY has no IF NOT EXISTS)
+drop policy if exists "contributors public read" on contributors;
 create policy "contributors public read" on contributors for select using (true);
+drop policy if exists "categories public read"   on categories;
 create policy "categories public read"   on categories   for select using (true);
+drop policy if exists "subtasks public read"     on subtasks;
 create policy "subtasks public read"     on subtasks     for select using (true);
+drop policy if exists "results public read"      on results;
 create policy "results public read"      on results      for select using (true);
 
 -- ============================================================================
@@ -256,9 +261,10 @@ begin
   if coalesce(p_token_budget, 0) < 500 or p_token_budget > 50000 then raise exception 'token_budget out of range (500..50000)'; end if;
   if p_model_policy not in ('any','min','exact') then raise exception 'bad model_policy'; end if;
 
-  -- rate limit: at most 20 submissions per contributor per hour
+  -- rate limit: raised 20 -> 5000 per contributor/hour to allow trusted bulk seeding
+  -- (keeps a runaway-abuse backstop; set lower again to tighten, or delete to remove entirely)
   select count(*) into recent from subtasks where submitted_by = cid and created_at > now() - interval '1 hour';
-  if recent >= 20 then raise exception 'rate limit: too many submissions this hour'; end if;
+  if recent >= 5000 then raise exception 'rate limit: too many submissions this hour'; end if;
 
   -- exact-duplicate rejection
   dk := md5(normalize_task_text(coalesce(p_category_slug, '') || ' ' || p_title || ' ' || p_prompt));

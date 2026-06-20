@@ -39,7 +39,7 @@ begin
   if p_model_policy not in ('any','min','exact') then raise exception 'bad model_policy'; end if;
 
   select count(*) into recent from subtasks where submitted_by = cid and created_at > now() - interval '1 hour';
-  if recent >= 20 then raise exception 'rate limit: too many submissions this hour'; end if;
+  if recent >= 5000 then raise exception 'rate limit: too many submissions this hour'; end if;
 
   dk := md5(normalize_task_text(coalesce(p_category_slug, '') || ' ' || p_title || ' ' || p_prompt));
   select id into existing_id from subtasks where dedupe_key = dk limit 1;

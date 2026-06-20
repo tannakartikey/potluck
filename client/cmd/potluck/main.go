@@ -17,6 +17,7 @@ import (
 	"github.com/tannakartikey/potluck/client/internal/api"
 	"github.com/tannakartikey/potluck/client/internal/backend"
 	"github.com/tannakartikey/potluck/client/internal/config"
+	"github.com/tannakartikey/potluck/client/internal/handle"
 	"github.com/tannakartikey/potluck/client/internal/runner"
 )
 
@@ -140,7 +141,7 @@ spec & docs: https://github.com/tannakartikey/potluck/blob/main/AGENTS.md
 
 func cmdRegister(args []string) {
 	fs := flag.NewFlagSet("register", flag.ExitOnError)
-	name := fs.String("name", "", "display name / handle")
+	name := fs.String("name", "", "display name / handle (omit for a random funny handle)")
 	_ = fs.Parse(args)
 
 	printDisclaimer()
@@ -149,14 +150,21 @@ func cmdRegister(args []string) {
 	if config.HasKey() {
 		fmt.Println("note: a key already exists at", config.Dir()+"/credentials — re-registering creates a NEW identity.")
 	}
+
+	displayName := strings.TrimSpace(*name)
+	if displayName == "" {
+		displayName = handle.Generate()
+		fmt.Println("no --name given — assigned a random handle:", displayName)
+	}
+
 	key, err := config.GenerateKey()
 	check(err)
-	c, err := cl.Register(ctx, key, *name)
+	c, err := cl.Register(ctx, key, displayName)
 	check(err)
 	check(config.SaveKey(key))
 
 	cfg, _ := config.Load()
-	cfg.DisplayName = *name
+	cfg.DisplayName = displayName
 	cfg.ContributorID = c.ID
 	check(cfg.Save())
 

@@ -337,6 +337,27 @@ func (c *Client) FlagResult(ctx context.Context, key, subtaskID, reason string) 
 	return &out, nil
 }
 
+// ContributeNote submits a task AND its already-produced note in one call (the "submit-with-result"
+// path) — for sources the sealed, no-web worker can't fetch, e.g. a video transcript. Requires
+// trusted status (trust_level >= 1); the task lands 'done' with the attributed, unverified result.
+func (c *Client) ContributeNote(ctx context.Context, key, title, prompt, acceptance, category string,
+	tags []string, budget int, artifactMD, reportedModel string, tokenCount int, permalink string) (*Subtask, error) {
+	data, err := c.rpc(ctx, "contribute_note", map[string]any{
+		"p_key": key, "p_title": title, "p_prompt": prompt, "p_acceptance": acceptance,
+		"p_category_slug": category, "p_tags": tags, "p_token_budget": budget,
+		"p_artifact_md": artifactMD, "p_reported_model": reportedModel, "p_token_count": tokenCount,
+		"p_permalink": permalink,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out Subtask
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("decode contribute_note: %w", err)
+	}
+	return &out, nil
+}
+
 func isJSONNull(b []byte) bool {
 	s := bytes.TrimSpace(b)
 	return len(s) == 0 || string(s) == "null"

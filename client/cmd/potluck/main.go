@@ -50,12 +50,16 @@ func main() {
 		cmdRun(os.Args[2:])
 	case "moderate":
 		cmdModerate(os.Args[2:])
+	case "flag":
+		cmdFlag(os.Args[2:])
 	case "grant-moderator":
 		cmdGrantModerator(os.Args[2:])
 	case "search":
 		cmdSearch(os.Args[2:])
 	case "submit":
 		cmdSubmit(os.Args[2:])
+	case "contribute":
+		cmdContribute(os.Args[2:])
 	case "usage":
 		cmdUsage(os.Args[2:])
 	case "status":
@@ -85,8 +89,10 @@ usage:
   potluck run [flags]                  claim → run → submit, until --max-tasks or Ctrl-C
   potluck moderate [flags]             AI-moderate submitted (pending) tasks → accept/reject/escalate
   potluck grant-moderator --contributor ID   (admin) grant/revoke moderator trust
+  potluck flag --subtask ID [--reason R]     (moderator) flag a bad note → reopens the task for a redo
   potluck search <query>               full-text search the open task board
   potluck submit --title T --prompt P  submit a task (lands 'pending' until AI-moderated)
+  potluck contribute --title T --note-file F   (trusted) submit a task + its finished note together
   potluck usage                        show your Claude plan usage (session + week)
   potluck status                       show your identity + what you've donated
   potluck version
@@ -370,6 +376,68 @@ func cmdGrantModerator(args []string) {
 		verb = "revoked moderator trust from"
 	}
 	fmt.Printf("✅ %s %s (%s) — trust_level now %d\n", verb, c.ID, orDefault(c.DisplayName, "anonymous"), c.TrustLevel)
+}
+
+// cmdFlag: a trusted moderator flags a low-quality published note; the task reopens so a
+// contributor can re-run and supersede it. Client-driven correction — no admin/DB access.
+func cmdFlag(args []string) {
+	fs := flag.NewFlagSet("flag", flag.ExitOnError)
+	subtask := fs.String("subtask", "", "subtask id whose note to flag (reopens it for a redo)")
+	reason := fs.String("reason", "", "why the note is being flagged")
+	_ = fs.Parse(args)
+
+	if !config.HasKey() {
+		fmt.Fprintln(os.Stderr, "register first: potluck register")
+		os.Exit(1)
+	}
+	if strings.TrimSpace(*subtask) == "" {
+		fmt.Fprintln(os.Stderr, "need --subtask <id>")
+		os.Exit(1)
+	}
+	key, err := config.LoadKey()
+	check(err)
+	s, err := api.New().FlagResult(context.Background(), key, *subtask, *reason)
+	check(err) // the RPC rejects non-moderators and self-flagging with a clear message
+	fmt.Printf("🚩 flagged — task %s reopened (status=%s); re-run it to supersede the note\n", s.ID, s.Status)
+}
+
+// cmdContribute: the submit-with-result path — submit a task AND its already-produced note in one
+// call (for sources the sealed worker can't fetch, e.g. a video transcript). Trusted-only.
+func cmdContribute(args []string) {
+	fs := flag.NewFlagSet("contribute", flag.ExitOnError)
+	title := fs.String("title", "", "task title")
+	prompt := fs.String("prompt", "", "short source reference (what was digested + its URL)")
+	acceptance := fs.String("acceptance", "", "what the note delivers")
+	category := fs.String("category", "", "primary category slug")
+	tagsCSV := fs.String("tags", "", "comma-separated tags")
+	noteFile := fs.String("note-file", "", "path to the produced note (markdown)")
+	model := fs.String("model", "", "the model that produced the note")
+	tokens := fs.Int("tokens", 0, "tokens spent producing the note")
+	permalink := fs.String("permalink", "", "source URL (e.g. the video)")
+	budget := fs.Int("budget", 5000, "token budget")
+	_ = fs.Parse(args)
+
+	if !config.HasKey() {
+		fmt.Fprintln(os.Stderr, "register first: potluck register")
+		os.Exit(1)
+	}
+	if strings.TrimSpace(*title) == "" || strings.TrimSpace(*noteFile) == "" || strings.TrimSpace(*model) == "" {
+		fmt.Fprintln(os.Stderr, "need --title, --note-file, and --model")
+		os.Exit(1)
+	}
+	note, err := os.ReadFile(*noteFile)
+	check(err)
+	var tags []string
+	for _, t := range strings.Split(*tagsCSV, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			tags = append(tags, t)
+		}
+	}
+	key, err := config.LoadKey()
+	check(err)
+	s, err := api.New().ContributeNote(context.Background(), key, *title, *prompt, *acceptance, *category, tags, *budget, string(note), *model, *tokens, *permalink)
+	check(err) // the RPC rejects non-trusted callers with a clear message
+	fmt.Printf("✅ contributed — task %s is %s, with your note attached\n", s.ID, s.Status)
 }
 
 func cmdSearch(args []string) {

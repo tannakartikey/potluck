@@ -15,6 +15,23 @@ func TestCommas(t *testing.T) {
 	}
 }
 
+// TestBudgetStop pins the cross-provider token cap: off when unset, and stops once the
+// run's cumulative token use reaches (or passes) the cap.
+func TestBudgetStop(t *testing.T) {
+	if msg := budgetStop(999999, Options{MaxTokens: 0}); msg != "" {
+		t.Errorf("MaxTokens=0 must never stop, got %q", msg)
+	}
+	if msg := budgetStop(500, Options{MaxTokens: 1000}); msg != "" {
+		t.Errorf("under the cap must not stop, got %q", msg)
+	}
+	if msg := budgetStop(1000, Options{MaxTokens: 1000}); msg == "" {
+		t.Error("reaching the cap exactly must stop")
+	}
+	if msg := budgetStop(1500, Options{MaxTokens: 1000}); msg == "" {
+		t.Error("passing the cap must stop")
+	}
+}
+
 func TestGuardDetectsSecrets(t *testing.T) {
 	bad := []string{
 		"here is a key sk-ant-abcdefghijklmnopqrstuv",

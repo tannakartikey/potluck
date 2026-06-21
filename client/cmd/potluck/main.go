@@ -100,8 +100,10 @@ run flags:
   --max-tasks N     stop after N tasks (default: 0 = until queue empty / Ctrl-C)
   --watch           when the queue is empty, wait and re-poll instead of exiting
   --poll N          --watch poll interval in seconds (default 15)
-  --max-week N      stop when your weekly plan usage reaches N% (Claude Code; 0 = off)
-  --max-session N   stop when your 5-hour session usage reaches N% (Claude Code; 0 = off)
+  --max-tokens N    stop the whole run after N tokens used — works on BOTH backends (0 = off)
+  --max-budget-usd F  per-task dollar cap, passed to Claude Code (claude only; 0 = off)
+  --max-week N      stop at N% weekly plan usage (Claude Code subscription only; 0 = off)
+  --max-session N   stop at N% session (5h) usage (Claude Code subscription only; 0 = off)
   --no-container    run on the host instead of the DEFAULT locked-down container
                     (by default each task runs in a container; mounts ONLY your auth
                     file, never your session history. Falls back to host if Docker
@@ -182,8 +184,10 @@ func cmdRun(args []string) {
 	maxTasks := fs.Int("max-tasks", 0, "stop after N tasks (0 = until empty / Ctrl-C)")
 	watch := fs.Bool("watch", false, "wait and re-poll when the queue is empty")
 	poll := fs.Int("poll", 15, "poll interval in seconds for --watch")
-	maxWeek := fs.Int("max-week", 0, "stop at N% weekly plan usage (0 = off)")
-	maxSession := fs.Int("max-session", 0, "stop at N% session (5h) usage (0 = off)")
+	maxTokens := fs.Int("max-tokens", 0, "stop the run after N tokens used — both backends (0 = off)")
+	maxUSD := fs.Float64("max-budget-usd", 0, "per-task dollar cap, passed to Claude Code (claude only; 0 = off)")
+	maxWeek := fs.Int("max-week", 0, "stop at N% weekly plan usage (Claude Code subscription; 0 = off)")
+	maxSession := fs.Int("max-session", 0, "stop at N% session (5h) usage (Claude Code subscription; 0 = off)")
 	noContainer := fs.Bool("no-container", false, "run on the host instead of the default locked-down container")
 	image := fs.String("image", "", "container image to use (default potluck-runner:latest)")
 	dockerMem := fs.String("docker-memory", "2g", "container memory limit")
@@ -194,12 +198,16 @@ func cmdRun(args []string) {
 	_ = fs.Parse(args)
 
 	curatedOpts := runner.Options{
-		Topics:       splitCSV(*topics),
-		BudgetTokens: pickInt(*budget, 16000),
-		Model:        firstNonEmpty(*model, "haiku"),
-		MaxTasks:     *maxTasks,
-		Watch:        *watch,
-		PollSeconds:  *poll,
+		Topics:        splitCSV(*topics),
+		BudgetTokens:  pickInt(*budget, 16000),
+		Model:         firstNonEmpty(*model, "haiku"),
+		MaxTasks:      *maxTasks,
+		MaxTokens:     *maxTokens,
+		MaxUSD:        *maxUSD,
+		MaxWeekPct:    *maxWeek,
+		MaxSessionPct: *maxSession,
+		Watch:         *watch,
+		PollSeconds:   *poll,
 	}
 	if *phase2 {
 		cmdRunPhase2(*image, *docDir, *dockerMem, *dockerCPUs, curatedOpts)
@@ -226,20 +234,20 @@ func cmdRun(args []string) {
 	// hardened container path, labelled the weaker lane.
 	if !*noTools && chosen == "claude-code" {
 		curatedOpts.Model = firstNonEmpty(*model, cfg.Model, "haiku")
+		curatedOpts.BudgetTokens = pickInt(*budget, cfg.BudgetTokens) // respect a configured budget on the default path too
 		cmdRunCurated(key, *image, *docDir, *dockerMem, *dockerCPUs, !*noContainer, curatedOpts)
 		return
 	}
 
 	be := buildBackend(chosen, !*noContainer, *image, *dockerMem, *dockerCPUs)
-	if chosen != "claude-code" && (*maxWeek > 0 || *maxSession > 0) {
-		fmt.Fprintf(os.Stderr, "note: --max-week/--max-session need plan-usage reporting (Claude Code only); ignored for %s.\n", chosen)
-	}
 
 	opts := runner.Options{
 		Topics:        splitCSV(*topics),
 		BudgetTokens:  pickInt(*budget, cfg.BudgetTokens),
 		Model:         resolveModel(chosen, *model, cfg.Model),
 		MaxTasks:      *maxTasks,
+		MaxTokens:     *maxTokens,
+		MaxUSD:        *maxUSD,
 		MaxWeekPct:    *maxWeek,
 		MaxSessionPct: *maxSession,
 		Watch:         *watch,

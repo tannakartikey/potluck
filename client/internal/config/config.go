@@ -55,7 +55,7 @@ func Load() (*Config, error) {
 		c.Backend = "claude-code"
 	}
 	if c.BudgetTokens == 0 {
-		c.BudgetTokens = 8000
+		c.BudgetTokens = 16000
 	}
 	return c, nil
 }

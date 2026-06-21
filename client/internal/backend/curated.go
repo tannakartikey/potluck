@@ -131,6 +131,9 @@ func claudeCuratedArgs(req Request, docDir, potluckBin string) []string {
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
 	}
+	if req.MaxUSD > 0 {
+		args = append(args, "--max-budget-usd", fmt.Sprintf("%.4f", req.MaxUSD))
+	}
 	return args
 }
 

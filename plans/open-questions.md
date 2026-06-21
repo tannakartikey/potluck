@@ -289,7 +289,7 @@ permalink}` in the DB; the binary lives in a public-read bucket. Out of v0 — l
 with the first non-text task type (see also v1 scope: image **inputs** are allowed
 today as linked URLs in `subtasks.attachments`).
 
-## 17. Usage-limit-aware execution (run-until-limit) — **[deferred]**
+## 17. Usage-limit-aware execution (run-until-limit) — **[shipped: cross-provider `--max-tokens`; Claude `--max-budget-usd` + plan-% stops]**
 
 A contributor may want to **run until their plan limit is reached** ("I've got 50%
 left and a day off — spend it on the commons"). Doing that safely needs
@@ -300,20 +300,39 @@ provider-specific limit awareness:
   detect the usage-limit signal rather than hammering — and (b) **never start eating
   into the *next* week's** allowance (respect the weekly boundary, not just the 5h one).
 - **API-key** users have **spend/rate** limits instead — a `--max-budget-usd` cap is
-  the natural control (already supported per-run by Claude Code).
+  the natural control (a real per-run Claude Code flag — now wired; see below).
 - Detection is **provider-specific**: parse each backend's error/usage signal to tell
   "limit reached" from a transient error, and back off vs. stop accordingly.
 
-**Shipped (Claude Code):** `claude -p "/usage"` reports both windows — session (5h) and weekly
-(all-models) % used, with reset times. The runner exposes this as **`potluck usage`** and as
-**`--max-week N` / `--max-session N`** stops: it checks before each task and ends the run cleanly
-when the cap is hit — exactly the "use up to my limit, but don't touch next week's" guard (set
-`--max-week` below 100). The 3-consecutive-failure circuit breaker remains as a backstop.
+**Shipped — cross-provider (`--max-tokens`):** the runner sums the **actual tokens** each backend
+reports (Claude Code's result JSON; Codex's `exec` JSONL) and stops cleanly once the run reaches
+`--max-tokens N`. Tokens are the **one spend signal both CLIs expose headlessly**, so this is the
+portable "donate up to N tokens, then stop" cap — works on Claude *and* Codex, subscription *or*
+API-key billing. The 3-consecutive-failure circuit breaker remains as a backstop.
 
-**Still open:** **Codex** has no CLI plan-usage command (only per-turn token counts), so
-`--max-week`/`--max-session` are Claude-Code-only (ignored + warned for Codex). API-key users
-want a $-budget cap instead (`--max-budget-usd` is available per-run via Claude Code). A unified
-per-provider usage abstraction is the remaining work.
+**Shipped — Claude Code:**
+- `claude -p "/usage"` reports both windows — session (5h) and weekly (all-models) % used, with
+  reset times. **VERIFIED live on Claude Code 2.1.177:** `-p "/usage"` *does* print parseable
+  `Current session: …% used · resets …` / `Current week (all models): …% used` lines on a
+  subscription — contrary to the current docs, which claim the plan bars are TUI-only and "not
+  exposed programmatically" (anthropics/claude-code#24459). The wording is version-fragile, so the
+  parser is best-effort — re-verify on upgrade. Exposed as **`potluck usage`** and as
+  **`--max-week N` / `--max-session N`** stops (checked before each task), aligned with GitHub
+  issue #1: the **all-models weekly** meter is the real gate, so that is the one `--max-week` reads.
+- **`--max-budget-usd`** is a real per-run Claude Code flag (verified in `claude --help` + docs),
+  now **wired through both Claude lanes** (no-tools + the default curated lane) as a per-task
+  dollar cap. Estimate-based, and for subscription users the $ figure isn't a bill.
+
+**Still open / honest limits:**
+- **Codex** surfaces plan-usage % only in its interactive TUI status line, **not** in `exec --json`,
+  and has **no `--max-budget-usd` and no `--max-turns`** (both requested upstream, declined). So
+  `--max-week`/`--max-session`/`--max-budget-usd` are Claude-only; for Codex the cross-provider
+  **`--max-tokens`** cap is the control. The runner now prints an **honest backend-aware note** when
+  a cap it was given can't be enforced, instead of silently ignoring it.
+- `--max-week`/`--max-session` are honored only by a backend that reports plan usage (today the
+  `--no-tools` Claude Code lane). The **default curated lane** does not — and its strong container
+  tier bills an API key, where the subscription windows don't even apply. A `CuratedClaude` usage
+  reporter for the host-subscription sub-case is possible future work; `--max-tokens` covers it now.
 
 ## 18. Binary provenance / install integrity — **[v0: install from source, bleeding-edge — keep it simple]**
 

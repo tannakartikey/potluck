@@ -21,10 +21,12 @@ type Options struct {
 	BudgetTokens  int
 	Model         string
 	MaxTasks      int
-	MaxWeekPct    int  // stop when weekly plan usage ≥ this % (0 = off; Claude Code only)
-	MaxSessionPct int  // stop when the 5-hour session usage ≥ this % (0 = off)
-	Watch         bool // when the queue is empty, wait and re-poll instead of exiting
-	PollSeconds   int  // --watch poll interval (default 15)
+	MaxTokens     int     // stop once the run has used ≥ this many tokens total (0 = off; BOTH backends)
+	MaxUSD        float64 // per-task dollar cap handed to the backend (0 = off; Claude Code only)
+	MaxWeekPct    int     // stop when weekly plan usage ≥ this % (0 = off; Claude Code subscription only)
+	MaxSessionPct int     // stop when the 5-hour session usage ≥ this % (0 = off; Claude Code subscription only)
+	Watch         bool    // when the queue is empty, wait and re-poll instead of exiting
+	PollSeconds   int     // --watch poll interval (default 15)
 
 	// SystemOverride, when set, replaces the default no-tools systemPreamble. Used by the
 	// opt-in v2 curated-tools path (--phase2) to tell the agent about its curated tools. Empty
@@ -50,6 +52,23 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 	fmt.Printf("🍲 potluck — backend=%s · model=%s · topics=%s · budget=%d tok/task\n",
 		be.Name(), orAny(opts.Model), topicsStr(opts.Topics), opts.BudgetTokens)
 	fmt.Printf("   db: %s\n", dbHost(cl))
+	if opts.MaxTokens > 0 {
+		fmt.Printf("   cap: stop after %s tokens used (both backends)\n", commas(opts.MaxTokens))
+	}
+	if opts.MaxUSD > 0 {
+		fmt.Printf("   cap: ≤ $%.2f per task\n", opts.MaxUSD)
+	}
+	// Honest, backend-aware notes: tell the contributor when a cap they set can't be
+	// enforced here, instead of silently ignoring it. Tokens (--max-tokens) work on every
+	// backend; the plan-% and $ caps are Claude-only.
+	if opts.MaxWeekPct > 0 || opts.MaxSessionPct > 0 {
+		if _, ok := be.(backend.UsageReporter); !ok {
+			fmt.Printf("   note: --max-week/--max-session need plan-usage reporting; %s can't provide it — use --max-tokens (works on every backend)\n", be.Name())
+		}
+	}
+	if opts.MaxUSD > 0 && be.Name() == "codex" {
+		fmt.Println("   note: --max-budget-usd is a Claude Code flag; Codex has no dollar cap — use --max-tokens instead")
+	}
 	if opts.MaxTasks > 0 {
 		fmt.Printf("   up to %d task(s); Ctrl-C to stop early\n\n", opts.MaxTasks)
 	} else {
@@ -124,6 +143,7 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 			System:  preamble,
 			Prompt:  prompt,
 			Model:   opts.Model,
+			MaxUSD:  opts.MaxUSD,
 			Timeout: 5 * time.Minute,
 		})
 		if err != nil {
@@ -161,6 +181,10 @@ func Run(ctx context.Context, cl *api.Client, be backend.Backend, key string, op
 		totalTok += resp.Usage.Total()
 		totalUSD += resp.Usage.CostUSD
 		fmt.Printf("· done   %-50s %s tok · $%.4f · %s\n", short(task.Title), commas(resp.Usage.Total()), resp.Usage.CostUSD, resp.ReportedModel)
+		if msg := budgetStop(totalTok, opts); msg != "" {
+			fmt.Println(msg)
+			return nil
+		}
 	}
 }
 
@@ -270,6 +294,17 @@ func usageStop(ctx context.Context, be backend.Backend, opts Options) string {
 	}
 	if opts.MaxSessionPct > 0 && u.SessionPct >= opts.MaxSessionPct {
 		return fmt.Sprintf("· stopping: session usage %d%% ≥ your --max-session %d%% (resets %s)", u.SessionPct, opts.MaxSessionPct, u.SessionResets)
+	}
+	return ""
+}
+
+// budgetStop returns a stop message once the run's cumulative token use reaches the
+// configured cap. Tokens are the ONE spend signal BOTH backends report (Claude Code's
+// result JSON and Codex's exec JSONL), so --max-tokens is the cross-provider
+// "donate up to N tokens, then stop" cap — unlike the Claude-only $/plan-% caps.
+func budgetStop(totalTok int, opts Options) string {
+	if opts.MaxTokens > 0 && totalTok >= opts.MaxTokens {
+		return fmt.Sprintf("· stopping: used %s tokens ≥ your --max-tokens %s", commas(totalTok), commas(opts.MaxTokens))
 	}
 	return ""
 }

@@ -95,3 +95,18 @@ func TestClaudeArgsNoTools(t *testing.T) {
 		t.Errorf("prompt not passed as the -p value: %v", args)
 	}
 }
+
+// TestClaudeArgsMaxBudgetUSD: --max-budget-usd is a real Claude Code flag (verified in
+// `claude --help` + docs); pass it only when a cap is set, formatted to cents-and-beyond.
+func TestClaudeArgsMaxBudgetUSD(t *testing.T) {
+	v, ok := argValue(claudeArgs(Request{Prompt: "x", MaxUSD: 2.5}), "--max-budget-usd")
+	if !ok {
+		t.Fatal("--max-budget-usd missing when MaxUSD is set")
+	}
+	if v != "2.5000" {
+		t.Errorf("--max-budget-usd = %q, want 2.5000", v)
+	}
+	if slices.Contains(claudeArgs(Request{Prompt: "x"}), "--max-budget-usd") {
+		t.Error("--max-budget-usd must be omitted when MaxUSD is 0")
+	}
+}

@@ -97,3 +97,16 @@ func TestCuratedBackendName(t *testing.T) {
 		t.Errorf("Name() = %q", c.Name())
 	}
 }
+
+// TestClaudeCuratedArgsMaxBudgetUSD: the per-task $ cap must also reach the DEFAULT
+// (curated) Claude lane, not just the --no-tools lane — else --max-budget-usd would be
+// silently dropped on the path most contributors actually use.
+func TestClaudeCuratedArgsMaxBudgetUSD(t *testing.T) {
+	v, ok := argValue(claudeCuratedArgs(Request{Prompt: "x", MaxUSD: 1.25}, "", "potluck"), "--max-budget-usd")
+	if !ok || v != "1.2500" {
+		t.Errorf("--max-budget-usd = %q (ok=%v), want 1.2500", v, ok)
+	}
+	if slices.Contains(claudeCuratedArgs(Request{Prompt: "x"}, "", "potluck"), "--max-budget-usd") {
+		t.Error("--max-budget-usd must be omitted when MaxUSD is 0")
+	}
+}

@@ -74,7 +74,7 @@ function taskCard(t) {
   const tags = (t.tags || []).slice(0, 4).map((x) => `<span class="tag">${esc(x)}</span>`).join("");
   const prio = (t.priority || 0) > 0 ? `<span class="prio-badge">★ priority</span>` : "";
   const desc = (t.prompt || "").replace(/\s+/g, " ").trim();
-  return `<article class="task-card reveal">
+  return `<a class="card-link" href="task.html?id=${esc(t.id)}"><article class="task-card reveal">
     <div class="task-top">
       ${t.category_slug ? `<span class="cat-badge">${esc(t.category_slug)}</span>` : ""}
       ${prio}
@@ -86,7 +86,7 @@ function taskCard(t) {
       <span class="budget">~${fmt(t.token_budget)} tok</span>
       <span>open · claimable</span>
     </div>
-  </article>`;
+  </article></a>`;
 }
 
 function renderBoard() {
@@ -133,7 +133,7 @@ function artCard(r) {
   const task = r.subtasks || {};
   const body = (r.artifact_md || "").replace(/[#>*`_]/g, "").replace(/\s+/g, " ").trim();
   const when = r.created_at ? new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-  return `<article class="art-card reveal">
+  return `<a class="card-link" href="task.html?id=${esc(r.subtask_id)}"><article class="art-card reveal">
     <div class="art-head">
       <span class="ai-label">AI · unverified</span>
       ${r.reported_model ? `<span class="model-badge">${esc(r.reported_model)}</span>` : ""}
@@ -144,8 +144,9 @@ function artCard(r) {
       ${task.category_slug ? `<span>${esc(task.category_slug)}</span>` : ""}
       <span>${fmt(r.token_count)} tok</span>
       ${when ? `<span>${esc(when)}</span>` : ""}
+      <span class="read-more">read →</span>
     </div>
-  </article>`;
+  </article></a>`;
 }
 
 function renderGallery(rows) {
@@ -170,7 +171,7 @@ function revealObserve(nodes) {
 /* ───────── load ───────── */
 async function load() {
   const boardQ = "status=eq.open&select=id,title,prompt,category_slug,tags,token_budget,priority&order=priority.desc,created_at.desc&limit=60";
-  const galleryQ = "select=id,reported_model,token_count,created_at,artifact_md,subtasks(title,category_slug)&order=created_at.desc&limit=9";
+  const galleryQ = "select=id,subtask_id,reported_model,token_count,created_at,artifact_md,subtasks(title,category_slug)&order=created_at.desc&limit=9";
 
   const [board, tokenRows, gallery, people] = await Promise.all([
     get("subtasks", boardQ),

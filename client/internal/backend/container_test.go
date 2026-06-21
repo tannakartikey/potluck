@@ -103,10 +103,78 @@ func TestAuthMountsForSkipsMountWhenKeyPresent(t *testing.T) {
 // TestAuthMountsForNoFile: with no auth file (e.g. macOS Keychain / API-key only), there
 // is nothing to mount and we fall back to forwarding the API key env var by name.
 func TestAuthMountsForNoFile(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", "") // don't let a host CLAUDE_CONFIG_DIR resolve to a real creds dir
 	home := t.TempDir()
 	mounts, env := AuthMountsFor("claude-code", home)
 	if len(mounts) != 0 {
 		t.Errorf("want no mounts when no credentials file exists, got %v", mounts)
+	}
+	if len(env) != 1 || env[0] != "ANTHROPIC_API_KEY" {
+		t.Errorf("env forward = %v, want [ANTHROPIC_API_KEY]", env)
+	}
+}
+
+// TestAuthMountsForClaudeConfigDir: when CLAUDE_CONFIG_DIR points at a SEPARATE account's
+// config dir, the mounted credentials file is sourced from THERE, not $HOME/.claude — so an
+// operator can run moderate/run against a different Claude login in CONTAINER mode. Still
+// mounts ONLY the single auth file, never the directory (the security model is unchanged).
+func TestAuthMountsForClaudeConfigDir(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "") // no key → the subscription token-file mount path
+	home := t.TempDir()
+	// The DEFAULT dir holds a credentials file that must be IGNORED when CLAUDE_CONFIG_DIR is set.
+	defaultDir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(defaultDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(defaultDir, ".credentials.json"), []byte(`{"acct":"default"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The SEPARATE account dir (e.g. ~/.claude-hg) — the one that must be mounted.
+	altDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(altDir, ".credentials.json"), []byte(`{"acct":"hg"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Session history in the alt dir must NEVER be mounted.
+	if err := os.WriteFile(filepath.Join(altDir, "history.jsonl"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", altDir)
+
+	mounts, env := AuthMountsFor("claude-code", home)
+	if len(mounts) != 1 {
+		t.Fatalf("want exactly 1 mount, got %v", mounts)
+	}
+	m := mounts[0]
+	if !strings.HasPrefix(m, filepath.Join(altDir, ".credentials.json")+":") {
+		t.Errorf("mount must be sourced from CLAUDE_CONFIG_DIR (%s), got %s", altDir, m)
+	}
+	if strings.Contains(m, defaultDir) {
+		t.Errorf("must NOT mount the default ~/.claude when CLAUDE_CONFIG_DIR is set: %s", m)
+	}
+	if !strings.HasSuffix(m, ".credentials.json:/home/potluck/.claude/.credentials.json:ro") {
+		t.Errorf("in-container dest / read-only flag changed unexpectedly: %s", m)
+	}
+	if strings.Contains(m, "history.jsonl") || strings.HasPrefix(m, altDir+":") {
+		t.Errorf("must mount only the single auth file, never the dir/history: %s", m)
+	}
+	if len(env) != 1 || env[0] != "ANTHROPIC_API_KEY" {
+		t.Errorf("env forward = %v, want [ANTHROPIC_API_KEY]", env)
+	}
+}
+
+// TestAuthMountsForConfigDirKeyWins: CLAUDE_CONFIG_DIR is set, but so is ANTHROPIC_API_KEY —
+// the key still wins and NO credential file is mounted (the file-read hardening is preserved).
+func TestAuthMountsForConfigDirKeyWins(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-present")
+	altDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(altDir, ".credentials.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", altDir)
+	mounts, env := AuthMountsFor("claude-code", t.TempDir())
+	if len(mounts) != 0 {
+		t.Errorf("with ANTHROPIC_API_KEY set, no file must be mounted even with CLAUDE_CONFIG_DIR, got %v", mounts)
 	}
 	if len(env) != 1 || env[0] != "ANTHROPIC_API_KEY" {
 		t.Errorf("env forward = %v, want [ANTHROPIC_API_KEY]", env)

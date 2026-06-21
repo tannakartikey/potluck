@@ -113,7 +113,7 @@ func AuthMountsFor(backendName, home string) (mounts, env []string) {
 		// auth lives in the Keychain (not a mountable file), so the container path is the
 		// ANTHROPIC_API_KEY env var instead.
 		if os.Getenv("ANTHROPIC_API_KEY") == "" {
-			if p := filepath.Join(home, ".claude", ".credentials.json"); fileExists(p) {
+			if p := filepath.Join(claudeConfigDir(home), ".credentials.json"); fileExists(p) {
 				mounts = append(mounts, p+":/home/potluck/.claude/.credentials.json:ro")
 			}
 		}
@@ -135,6 +135,20 @@ func HasContainerAuth(backendName, home string, mounts, env []string) bool {
 		}
 	}
 	return false
+}
+
+// claudeConfigDir is the directory holding the contributor's Claude Code credentials:
+// $CLAUDE_CONFIG_DIR if set (lets an operator point a containerized run at a SEPARATE
+// account/login — e.g. a second subscription in ~/.claude-hg), else the default $HOME/.claude.
+// This mirrors the env var Claude Code itself reads, so container mode honors the same knob the
+// host lane already does via inherited env. We still mount ONLY .credentials.json from it —
+// never the directory — so session history never enters the container; only the SOURCE of the
+// single auth file changes. (API key still wins: if ANTHROPIC_API_KEY is set, nothing is mounted.)
+func claudeConfigDir(home string) string {
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		return d
+	}
+	return filepath.Join(home, ".claude")
 }
 
 func fileExists(p string) bool {

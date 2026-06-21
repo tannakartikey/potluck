@@ -320,6 +320,23 @@ func (c *Client) GrantTrust(ctx context.Context, key, contributorID string, leve
 	return &out, nil
 }
 
+// FlagResult lets a trusted moderator (trust_level >= 1) flag a low-quality note on a 'done'
+// task: the task reopens (done → open) and its result is cleared so it can be re-run and
+// superseded. The RPC rejects flagging a note you produced yourself. (open-questions #24)
+func (c *Client) FlagResult(ctx context.Context, key, subtaskID, reason string) (*Subtask, error) {
+	data, err := c.rpc(ctx, "flag_result", map[string]any{
+		"p_key": key, "p_subtask_id": subtaskID, "p_reason": reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var out Subtask
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("decode flag_result: %w", err)
+	}
+	return &out, nil
+}
+
 func isJSONNull(b []byte) bool {
 	s := bytes.TrimSpace(b)
 	return len(s) == 0 || string(s) == "null"

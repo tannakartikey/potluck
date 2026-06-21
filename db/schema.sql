@@ -310,6 +310,36 @@ begin
 end;
 $$;
 
+-- flag_result: a TRUSTED moderator (trust_level >= 1) flags the published note on a 'done' task as
+-- bad/low-quality. The task reopens (done -> open) so a contributor can re-run it; the new note
+-- supersedes the old by recency (canonical = newest). Results are APPEND-ONLY — the prior note is
+-- kept in history for provenance/audit, never deleted (open-questions #24). A moderator may not flag
+-- a task they themselves have a note on. No admin / service_role needed.
+create or replace function flag_result(p_key text, p_subtask_id uuid, p_reason text default null)
+returns subtasks language plpgsql security definer set search_path = public, extensions as $$
+declare cid uuid; lvl int; s subtasks;
+begin
+  cid := _contributor_for_key(p_key);
+  if cid is null then raise exception 'invalid key'; end if;
+  select trust_level into lvl from contributors where id = cid;
+  if coalesce(lvl, 0) < 1 then
+    raise exception 'not authorized: only trusted moderators (trust_level >= 1) may flag a note — ask an admin to grant you moderator trust';
+  end if;
+  select * into s from subtasks where id = p_subtask_id;
+  if not found then raise exception 'no such task'; end if;
+  if s.status <> 'done' then raise exception 'can only flag a done task (status=%)', s.status; end if;
+  if exists (select 1 from results where subtask_id = p_subtask_id and contributor_id = cid) then
+    raise exception 'cannot flag a task you have a note on';
+  end if;
+  update subtasks
+     set status = 'open', leased_by = null, lease_expires_at = null,
+         rejection_note = coalesce(p_reason, rejection_note)
+   where id = p_subtask_id
+   returning * into s;
+  return s;
+end;
+$$;
+
 -- grant_trust: an ADMIN (trust_level >= 2) grants/revokes MODERATOR trust (level 0 or 1) to a
 -- contributor. Admin level itself is bootstrapped out-of-band (set trust_level=2 via the Supabase
 -- console / service_role on a known-good contributor) and is never grantable through this RPC —
@@ -349,6 +379,7 @@ grant execute on function submit_result(text, uuid, text, text, text, int, text,
 grant execute on function release_lease(text, uuid, boolean)                                  to anon;
 grant execute on function submit_task(text, text, text, text, text, text[], int, text, text)  to anon;
 grant execute on function moderate_task(text, uuid, text, text)                               to anon;
+grant execute on function flag_result(text, uuid, text)                                       to anon;
 grant execute on function grant_trust(text, uuid, int)                                        to anon;
 -- internal resolver is never callable directly
 revoke all on function _contributor_for_key(text) from public, anon, authenticated;

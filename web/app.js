@@ -66,7 +66,7 @@ function renderStats({ tokens, done, open, people }) {
 }
 
 /* ───────── render: board ───────── */
-const BOARD_LIMIT = 30;    // max open-task cards fetched/shown; overflow is summarized as "+N more"
+const BOARD_LIMIT = 15;    // max open-task cards fetched/shown; overflow is summarized as "+N more"
 let BOARD = [];            // the open tasks we fetched (up to BOARD_LIMIT)
 let OPEN_TOTAL = 0;        // exact count of ALL open tasks (drives the stat + the "+N more" note)
 let activeCat = "all";

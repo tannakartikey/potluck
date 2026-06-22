@@ -66,7 +66,9 @@ function renderStats({ tokens, done, open, people }) {
 }
 
 /* ───────── render: board ───────── */
-let BOARD = [];            // all open tasks
+const BOARD_LIMIT = 30;    // max open-task cards fetched/shown; overflow is summarized as "+N more"
+let BOARD = [];            // the open tasks we fetched (up to BOARD_LIMIT)
+let OPEN_TOTAL = 0;        // exact count of ALL open tasks (drives the stat + the "+N more" note)
 let activeCat = "all";
 let query = "";
 
@@ -90,7 +92,8 @@ function taskCard(t) {
 }
 
 function renderBoard() {
-  const grid = $("#board-grid"), empty = $("#board-empty");
+  const grid = $("#board-grid"), empty = $("#board-empty"), more = $("#board-more");
+  if (more) more.hidden = true;
   let list = BOARD;
   if (activeCat !== "all") list = list.filter((t) => (t.category_slug || "") === activeCat);
   if (query) {
@@ -112,6 +115,13 @@ function renderBoard() {
   empty.hidden = true;
   grid.innerHTML = list.map(taskCard).join("");
   revealObserve(grid.querySelectorAll(".reveal"));
+
+  // Only the top BOARD_LIMIT are fetched; if more open tasks exist, nudge people to their agent.
+  const extra = OPEN_TOTAL - BOARD.length;
+  if (more && extra > 0 && activeCat === "all" && !query) {
+    more.hidden = false;
+    more.innerHTML = `Showing the top ${fmt(BOARD.length)} · <b>+${fmt(extra)} more open</b> — point your agent at the board to see them all.`;
+  }
 }
 
 function renderChips() {
@@ -170,11 +180,12 @@ function revealObserve(nodes) {
 
 /* ───────── load ───────── */
 async function load() {
-  const boardQ = "status=eq.open&select=id,title,prompt,category_slug,tags,token_budget,priority&order=priority.desc,created_at.desc&limit=60";
+  const boardQ = "status=eq.open&select=id,title,prompt,category_slug,tags,token_budget,priority&order=priority.desc,created_at.desc&limit=" + BOARD_LIMIT;
   const galleryQ = "select=id,subtask_id,reported_model,token_count,created_at,artifact_md,subtasks(title,category_slug)&order=created_at.desc&limit=9";
 
-  const [board, tokenRows, gallery, people] = await Promise.all([
+  const [board, openTotal, tokenRows, gallery, people] = await Promise.all([
     get("subtasks", boardQ),
+    count("subtasks", "status=eq.open&select=id"),
     get("results", "select=token_count"),
     get("results", galleryQ),
     count("contributors"),
@@ -182,12 +193,13 @@ async function load() {
 
   // sample mode: filter open client-side
   BOARD = (SRC.mode === "live" ? board : board.filter((t) => t.status === "open")) || [];
+  OPEN_TOTAL = openTotal != null ? openTotal : BOARD.length;   // exact open count; falls back to what we fetched
 
   const tokens = (tokenRows || []).reduce((s, r) => s + (r.token_count || 0), 0);
   const done = (tokenRows || []).length;
   const peopleCount = people != null ? people : new Set((gallery || []).map((r) => r.contributor_id)).size;
 
-  renderStats({ tokens, done, open: BOARD.length, people: peopleCount });
+  renderStats({ tokens, done, open: OPEN_TOTAL, people: peopleCount });
   renderChips();
   renderBoard();
   renderGallery(gallery || []);

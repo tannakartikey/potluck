@@ -175,6 +175,8 @@ code { font-family: var(--mono); font-size: .86em; background: var(--code-bg); p
 .ai-label { text-transform: uppercase; letter-spacing: .05em; }
 .art-body { color: var(--muted); font-size: .94rem; margin: 0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; }
 .board-empty, .gallery-empty { text-align: center; color: var(--muted); font-size: 1.1rem; padding: 2.5rem 1rem; }
+.board-more { text-align: center; color: var(--muted); font-size: 1rem; padding: 1.6rem 1rem 0; }
+.board-more b { color: var(--accent); font-weight: 700; }
 .skeleton-card { height: 200px; border-radius: 16px; border: 1px solid var(--border); background: linear-gradient(100deg, var(--tint) 30%, var(--surface) 50%, var(--tint) 70%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 

@@ -7,6 +7,19 @@ import (
 	"github.com/tannakartikey/potluck/client/internal/api"
 )
 
+// TestSystemPreambleDemandsProvenance pins the completeness contract every worker inherits:
+// the preamble must require naming people (authors/participants) and capturing references,
+// while still forbidding fabrication. This is the universal "do the full thing in the first
+// go" lever — so a contributor's agent captures provenance without the owner catching gaps.
+func TestSystemPreambleDemandsProvenance(t *testing.T) {
+	p := strings.ToLower(systemPreamble)
+	for _, must := range []string{"author", "participant", "provenance", "related work", "never fabricate", "never guess"} {
+		if !strings.Contains(p, must) {
+			t.Errorf("systemPreamble must mention %q so agents capture it by default", must)
+		}
+	}
+}
+
 func TestCommas(t *testing.T) {
 	for in, want := range map[int]string{0: "0", 7: "7", 1234: "1,234", 28400: "28,400", 1000000: "1,000,000"} {
 		if got := commas(in); got != want {
